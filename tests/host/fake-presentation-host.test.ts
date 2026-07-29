@@ -53,6 +53,16 @@ class ManualClock implements FakeClock {
   }
 }
 
+class SynchronousClock implements FakeClock {
+  readonly schedule = (
+    _delayMs: number,
+    callback: () => void,
+  ): (() => void) => {
+    callback();
+    return () => {};
+  };
+}
+
 function messageEvent(id: string, text: string): HostPresentationEvent {
   return {
     type: "message",
@@ -198,33 +208,166 @@ describe("FakePresentationHost", () => {
     expect(clock.pendingCount).toBe(0);
   });
 
-  it("submit text never persists the prompt", async () => {
-    const clock = new ManualClock();
-    const storageWrite = vi.spyOn(Storage.prototype, "setItem");
-    const consoleWrite = vi.spyOn(console, "log").mockImplementation(() => {});
-    const networkCall = vi.fn();
-    vi.stubGlobal("fetch", networkCall);
-    let generatedSynchronously = false;
+  it("closes before fatal callbacks can submit reentrant work", async () => {
+    const emitted: HostPresentationEvent[] = [];
+    const fatalErrors: Array<"invalid_event" | "host_unavailable"> = [];
+    const submittedTexts: string[] = [];
+    let submittedVoiceTranscripts = 0;
+    let permissionDecisions = 0;
+    let session: PresentationSession | null = null;
     const host = new FakePresentationHost(makeScript({
       onText: (text) => {
-        expect(text).toBe("raw private prompt");
+        submittedTexts.push(text);
+        return text === "trigger malformed event"
+          ? [{
+            type: "message",
+            message: {
+              id: "malformed",
+              author: "nova",
+              createdAt: "2026-07-29T00:00:00.000Z",
+            },
+          } as unknown as HostPresentationEvent]
+          : [messageEvent("reentrant", "must never emit")];
+      },
+      onVoiceTranscript: () => {
+        submittedVoiceTranscripts += 1;
+        return [messageEvent("reentrant-voice", "must never emit")];
+      },
+      onPermission: () => {
+        permissionDecisions += 1;
+        return [messageEvent("reentrant-permission", "must never emit")];
+      },
+    }), new SynchronousClock());
+
+    session = await host.connect({
+      onEvent: (event) => {
+        emitted.push(event as HostPresentationEvent);
+      },
+      onFatalError: (code) => {
+        fatalErrors.push(code);
+        if (session !== null) {
+          void session.submitText("reentrant submission");
+          void session.submitVoiceTranscript("reentrant transcript");
+          void session.decidePermission("reentrant-approval", "approve");
+        }
+      },
+    }, new AbortController().signal);
+
+    await session.submitText("trigger malformed event");
+
+    expect(fatalErrors).toEqual(["invalid_event"]);
+    expect(submittedTexts).toEqual(["trigger malformed event"]);
+    expect(submittedVoiceTranscripts).toBe(0);
+    expect(permissionDecisions).toBe(0);
+    expect(emitted).toEqual([]);
+  });
+
+  it("submit text never persists the prompt", async () => {
+    const clock = new ManualClock();
+    const promptSentinel = "RAW_PROMPT_SENTINEL_7EAC9C43";
+    const storageWrite = vi.spyOn(Storage.prototype, "setItem");
+    const consoleDebug = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchCall = vi.fn();
+    const webSocketCall = vi.fn();
+    const indexedDbOpen = vi.fn();
+    const cacheOpen = vi.fn();
+    const serviceWorkerRegister = vi.fn();
+    const getUserMedia = vi.fn();
+    const xhrOpen = vi.spyOn(XMLHttpRequest.prototype, "open");
+    const xhrSend = vi.spyOn(XMLHttpRequest.prototype, "send");
+    vi.stubGlobal("fetch", fetchCall);
+    vi.stubGlobal("WebSocket", webSocketCall);
+    vi.stubGlobal("indexedDB", { open: indexedDbOpen });
+    vi.stubGlobal("caches", { open: cacheOpen });
+    const mediaDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "mediaDevices",
+    );
+    const workerDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "serviceWorker",
+    );
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: { register: serviceWorkerRegister },
+    });
+    let generatedSynchronously = false;
+    let submissionError: unknown = null;
+    const hostHandlers = handlers();
+    const host = new FakePresentationHost(makeScript({
+      onText: (text) => {
+        expect(text).toBe(promptSentinel);
         generatedSynchronously = true;
         return [messageEvent("response", "synthetic response")];
       },
     }), clock);
 
-    const session = await host.connect(
-      handlers(),
-      new AbortController().signal,
-    );
-    await session.submitText("raw private prompt");
+    try {
+      const session = await host.connect(
+        hostHandlers,
+        new AbortController().signal,
+      );
+      try {
+        await session.submitText(promptSentinel);
+      } catch (error: unknown) {
+        submissionError = error;
+      }
+      expect(clock.pendingCount).toBeGreaterThan(0);
+      clock.flushAll();
+      await session.close();
 
-    expect(generatedSynchronously).toBe(true);
-    expect(JSON.stringify(host)).not.toContain("raw private prompt");
-    expect(JSON.stringify(session)).not.toContain("raw private prompt");
-    expect(storageWrite).not.toHaveBeenCalled();
-    expect(consoleWrite).not.toHaveBeenCalled();
-    expect(networkCall).not.toHaveBeenCalled();
+      expect(generatedSynchronously).toBe(true);
+      expect(hostHandlers.events).toEqual([
+        messageEvent("response", "synthetic response"),
+      ]);
+      expect(hostHandlers.fatalErrors).toEqual([]);
+      expect(clock.pendingCount).toBe(0);
+      expect(JSON.stringify({
+        host,
+        session,
+        submissionError: submissionError instanceof Error
+          ? {
+            name: submissionError.name,
+            message: submissionError.message,
+          }
+          : submissionError,
+      })).not.toContain(promptSentinel);
+      expect(window.localStorage.getItem(promptSentinel)).toBeNull();
+      expect(window.sessionStorage.getItem(promptSentinel)).toBeNull();
+      expect(storageWrite).not.toHaveBeenCalled();
+      expect(consoleDebug).not.toHaveBeenCalled();
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(consoleInfo).not.toHaveBeenCalled();
+      expect(consoleLog).not.toHaveBeenCalled();
+      expect(consoleWarn).not.toHaveBeenCalled();
+      expect(fetchCall).not.toHaveBeenCalled();
+      expect(xhrOpen).not.toHaveBeenCalled();
+      expect(xhrSend).not.toHaveBeenCalled();
+      expect(webSocketCall).not.toHaveBeenCalled();
+      expect(indexedDbOpen).not.toHaveBeenCalled();
+      expect(cacheOpen).not.toHaveBeenCalled();
+      expect(serviceWorkerRegister).not.toHaveBeenCalled();
+      expect(getUserMedia).not.toHaveBeenCalled();
+    } finally {
+      if (mediaDescriptor === undefined) {
+        Reflect.deleteProperty(navigator, "mediaDevices");
+      } else {
+        Object.defineProperty(navigator, "mediaDevices", mediaDescriptor);
+      }
+      if (workerDescriptor === undefined) {
+        Reflect.deleteProperty(navigator, "serviceWorker");
+      } else {
+        Object.defineProperty(navigator, "serviceWorker", workerDescriptor);
+      }
+    }
   });
 
   it("cancel aborts pending fake work and closes the session", async () => {
@@ -309,6 +452,44 @@ describe("FakePresentationHost", () => {
       expect(voiceCancel).toHaveBeenCalledTimes(1);
     });
     expect((connectedSignal as AbortSignal | null)?.aborted).toBe(true);
+  });
+
+  it("contains synchronous host connection failures", async () => {
+    const thrownSentinel = "SYNCHRONOUS_CONNECT_PRIVATE_SENTINEL";
+    let connectedSignal: AbortSignal | null = null;
+    const connect: PresentationHostAdapter["connect"] = (
+      _hostHandlers,
+      signal,
+    ) => {
+      connectedSignal = signal;
+      throw new Error(thrownSentinel);
+    };
+    const host: PresentationHostAdapter = { connect };
+    const voiceCancel = vi.fn<VoiceCaptureAdapter["cancel"]>().mockResolvedValue();
+    const voice: VoiceCaptureAdapter = {
+      available: true,
+      start: async () => {},
+      stopForReview: async () => "review",
+      cancel: voiceCancel,
+    };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const view = renderHook(() => usePresentationController(host, voice));
+
+    await waitFor(() => {
+      expect(view.result.current.sessionState).toBe("failed");
+    });
+    expect(view.result.current.sessionError).toBe(
+      "The presentation host is unavailable.",
+    );
+    expect(view.result.current.sessionError).not.toContain(thrownSentinel);
+    expect((connectedSignal as AbortSignal | null)?.aborted).toBe(true);
+    expect(voiceCancel).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    await waitFor(() => {
+      expect(voiceCancel).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("unavailable voice capture never opens a microphone", async () => {

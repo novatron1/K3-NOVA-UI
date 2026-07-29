@@ -201,11 +201,13 @@ class FakePresentationSession implements PresentationSession {
       return;
     }
 
+    this.closed = true;
     this.cancelPending();
+    this.signal.removeEventListener("abort", this.onAbort);
     try {
       this.handlers.onFatalError(code);
-    } finally {
-      this.closeNow();
+    } catch {
+      // External fatal handlers cannot reopen or destabilize the session.
     }
   }
 }

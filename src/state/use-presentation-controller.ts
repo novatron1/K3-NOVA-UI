@@ -69,35 +69,42 @@ export function usePresentationController(
       }
     };
 
-    const connection = host.connect({
-      onEvent: (candidate) => {
-        if (!active || terminated) {
-          return;
-        }
+    let connection: Promise<PresentationSession> | null = null;
+    try {
+      connection = host.connect({
+        onEvent: (candidate) => {
+          if (!active || terminated) {
+            return;
+          }
 
-        const validation = validateHostEvent(candidate);
-        if (!validation.ok) {
-          terminate("invalid_event");
-          return;
-        }
+          const validation = validateHostEvent(candidate);
+          if (!validation.ok) {
+            terminate("invalid_event");
+            return;
+          }
 
-        dispatch({ type: "host_event", event: validation.event });
-      },
-      onFatalError: terminate,
-    }, abortController.signal);
+          dispatch({ type: "host_event", event: validation.event });
+        },
+        onFatalError: terminate,
+      }, abortController.signal);
+    } catch {
+      terminate("host_unavailable");
+    }
 
-    void connection.then(
-      (connectedSession) => {
-        if (!active || terminated) {
-          ignoreFailure(() => connectedSession.close());
-          return;
-        }
-        session = connectedSession;
-      },
-      () => {
-        terminate("host_unavailable");
-      },
-    );
+    if (connection !== null) {
+      void connection.then(
+        (connectedSession) => {
+          if (!active || terminated) {
+            ignoreFailure(() => connectedSession.close());
+            return;
+          }
+          session = connectedSession;
+        },
+        () => {
+          terminate("host_unavailable");
+        },
+      );
+    }
 
     return () => {
       active = false;
