@@ -102,7 +102,12 @@ function freezeSnapshot(snapshot: SanitizedHostSnapshot): SanitizedHostSnapshot 
 }
 
 function freezeMessage(message: UntrustedMessage): UntrustedMessage {
-  return Object.freeze({ ...message });
+  return Object.freeze({
+    id: message.id,
+    author: message.author,
+    text: message.text,
+    createdAt: message.createdAt,
+  });
 }
 
 function readonlySet<T>(values: Iterable<T>): ReadonlySet<T> {
@@ -137,13 +142,6 @@ function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function isUntrustedMessage(value: unknown): value is UntrustedMessage {
-  return isRecord(value)
-    && typeof value.id === "string"
-    && (value.author === "user" || value.author === "nova")
-    && typeof value.createdAt === "string";
-}
-
 function withSnapshot(
   state: PresentationState,
   event: Extract<HostPresentationEvent, { readonly type: "snapshot" }>,
@@ -161,6 +159,49 @@ function withSnapshot(
   });
 }
 
+function withMessage(
+  state: PresentationState,
+  event: Extract<HostPresentationEvent, { readonly type: "message" }>,
+): PresentationState {
+  const validation = validateHostEvent(event);
+  if (!validation.ok || validation.event.type !== "message") {
+    return assertNever(event as never);
+  }
+
+  return freezeState({
+    ...state,
+    messages: freezeArray([
+      ...state.messages,
+      freezeMessage(validation.event.message),
+    ]),
+  });
+}
+
+function withMessageReplacement(
+  state: PresentationState,
+  event: Extract<HostPresentationEvent, { readonly type: "message_replaced" }>,
+): PresentationState {
+  const validation = validateHostEvent(event);
+  if (!validation.ok || validation.event.type !== "message_replaced") {
+    return assertNever(event as never);
+  }
+  const replacement = validation.event;
+
+  return freezeState({
+    ...state,
+    messages: freezeArray(state.messages.map((message) => (
+      message.id === replacement.messageId
+        ? freezeMessage({
+          id: message.id,
+          author: message.author,
+          text: replacement.text,
+          createdAt: message.createdAt,
+        })
+        : message
+    ))),
+  });
+}
+
 function withHostEvent(
   state: PresentationState,
   event: HostPresentationEvent,
@@ -173,25 +214,9 @@ function withHostEvent(
     case "snapshot":
       return withSnapshot(state, event);
     case "message":
-      if (!isUntrustedMessage(event.message)) {
-        return assertNever(event as never);
-      }
-      return freezeState({
-        ...state,
-        messages: freezeArray([...state.messages, freezeMessage(event.message)]),
-      });
+      return withMessage(state, event);
     case "message_replaced":
-      if (typeof event.messageId !== "string" || typeof event.text !== "string") {
-        return assertNever(event as never);
-      }
-      return freezeState({
-        ...state,
-        messages: freezeArray(state.messages.map((message) => (
-          message.id === event.messageId
-            ? freezeMessage({ ...message, text: event.text })
-            : message
-        ))),
-      });
+      return withMessageReplacement(state, event);
     case "session_error":
       if (
         (event.code !== "timeout"

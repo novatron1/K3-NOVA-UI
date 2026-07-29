@@ -238,4 +238,37 @@ describe("presentationReducer", () => {
     } as never)).toThrow("unsupported presentation action");
     expect(state.snapshot.phase).toBe("paused");
   });
+
+  it("rejects malformed, oversized, and private message payloads without retaining them", () => {
+    const state = createInitialPresentationState();
+    const invalidMessages: readonly unknown[] = [
+      {
+        id: "missing-text",
+        author: "nova",
+        createdAt: "2026-07-29T00:00:00.000Z",
+      },
+      {
+        id: "oversized",
+        author: "nova",
+        text: "x".repeat(200_001),
+        createdAt: "2026-07-29T00:00:00.000Z",
+      },
+      {
+        id: "private-payload",
+        author: "nova",
+        text: "ordinary content",
+        createdAt: "2026-07-29T00:00:00.000Z",
+        providerBody: { mutable: true, secret: "must not persist" },
+      },
+    ];
+
+    for (const message of invalidMessages) {
+      expect(() => presentationReducer(state, {
+        type: "host_event",
+        event: { type: "message", message },
+      } as never)).toThrow("unsupported presentation action");
+    }
+
+    expect(state.messages).toEqual([]);
+  });
 });
