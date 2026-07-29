@@ -106,6 +106,55 @@ function handlers(): PresentationHostHandlers & {
   };
 }
 
+function callableConsoleMethodNames(source: Console): readonly string[] {
+  const names = new Set<string>();
+  let current: object | null = source;
+
+  while (current !== null && current !== Object.prototype) {
+    for (const key of Reflect.ownKeys(current)) {
+      if (typeof key !== "string" || key === "constructor") {
+        continue;
+      }
+
+      let value: unknown;
+      try {
+        value = Reflect.get(source, key, source);
+      } catch {
+        continue;
+      }
+      if (typeof value === "function") {
+        names.add(key);
+      }
+    }
+    current = Object.getPrototypeOf(current) as object | null;
+  }
+
+  return Object.freeze([...names].sort());
+}
+
+function guardConsole(source: Console): {
+  readonly value: Console;
+  readonly spies: readonly {
+    readonly name: string;
+    readonly invoke: ReturnType<typeof vi.fn>;
+  }[];
+} {
+  const guarded = Object.create(source) as object;
+  const spies = callableConsoleMethodNames(source).map((name) => {
+    const invoke = vi.fn();
+    Object.defineProperty(guarded, name, {
+      configurable: true,
+      value: invoke,
+    });
+    return Object.freeze({ name, invoke });
+  });
+
+  return Object.freeze({
+    value: guarded as Console,
+    spies: Object.freeze(spies),
+  });
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -265,12 +314,13 @@ describe("FakePresentationHost", () => {
   it("submit text never persists the prompt", async () => {
     const clock = new ManualClock();
     const promptSentinel = "RAW_PROMPT_SENTINEL_7EAC9C43";
+    const initialHref = window.location.href;
+    const initialSearch = window.location.search;
     const storageWrite = vi.spyOn(Storage.prototype, "setItem");
-    const consoleDebug = vi.spyOn(console, "debug").mockImplementation(() => {});
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
-    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
-    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const consoleGuard = guardConsole(console);
+    vi.stubGlobal("console", consoleGuard.value);
+    const pushState = vi.spyOn(window.history, "pushState");
+    const replaceState = vi.spyOn(window.history, "replaceState");
     const fetchCall = vi.fn();
     const webSocketCall = vi.fn();
     const indexedDbOpen = vi.fn();
@@ -343,11 +393,16 @@ describe("FakePresentationHost", () => {
       expect(window.localStorage.getItem(promptSentinel)).toBeNull();
       expect(window.sessionStorage.getItem(promptSentinel)).toBeNull();
       expect(storageWrite).not.toHaveBeenCalled();
-      expect(consoleDebug).not.toHaveBeenCalled();
-      expect(consoleError).not.toHaveBeenCalled();
-      expect(consoleInfo).not.toHaveBeenCalled();
-      expect(consoleLog).not.toHaveBeenCalled();
-      expect(consoleWarn).not.toHaveBeenCalled();
+      for (const consoleMethod of consoleGuard.spies) {
+        expect(
+          consoleMethod.invoke,
+          `console.${consoleMethod.name} must remain unused`,
+        ).not.toHaveBeenCalled();
+      }
+      expect(pushState).not.toHaveBeenCalled();
+      expect(replaceState).not.toHaveBeenCalled();
+      expect(window.location.href).toBe(initialHref);
+      expect(window.location.search).toBe(initialSearch);
       expect(fetchCall).not.toHaveBeenCalled();
       expect(xhrOpen).not.toHaveBeenCalled();
       expect(xhrSend).not.toHaveBeenCalled();
@@ -357,6 +412,9 @@ describe("FakePresentationHost", () => {
       expect(serviceWorkerRegister).not.toHaveBeenCalled();
       expect(getUserMedia).not.toHaveBeenCalled();
     } finally {
+      if (window.location.href !== initialHref) {
+        window.history.replaceState(null, "", initialHref);
+      }
       if (mediaDescriptor === undefined) {
         Reflect.deleteProperty(navigator, "mediaDevices");
       } else {
