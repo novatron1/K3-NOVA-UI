@@ -111,23 +111,42 @@ function freezeMessage(message: UntrustedMessage): UntrustedMessage {
 }
 
 function readonlySet<T>(values: Iterable<T>): ReadonlySet<T> {
-  const target = new Set(values);
-  Object.freeze(target);
-
-  const proxy = new Proxy(target, {
-    get(set, property) {
-      if (property === "add" || property === "delete" || property === "clear") {
-        return () => {
-          throw new TypeError("presentation state sets are read-only");
-        };
-      }
-
-      const value = Reflect.get(set, property, set);
-      return typeof value === "function" ? value.bind(set) : value;
+  const backing = new Set(values);
+  const facade: ReadonlySet<T> & {
+    readonly [Symbol.toStringTag]: string;
+  } = {
+    get size(): number {
+      return backing.size;
     },
-  });
+    has(value: T): boolean {
+      return backing.has(value);
+    },
+    entries(): SetIterator<[T, T]> {
+      return backing.entries();
+    },
+    keys(): SetIterator<T> {
+      return backing.keys();
+    },
+    values(): SetIterator<T> {
+      return backing.values();
+    },
+    forEach(
+      callback: (value: T, duplicate: T, set: ReadonlySet<T>) => void,
+      thisArg?: unknown,
+    ): void {
+      backing.forEach((value) => {
+        callback.call(thisArg, value, value, facade);
+      });
+    },
+    [Symbol.iterator](): SetIterator<T> {
+      return backing.values();
+    },
+    get [Symbol.toStringTag](): string {
+      return "Set";
+    },
+  };
 
-  return Object.freeze(proxy) as ReadonlySet<T>;
+  return Object.freeze(facade);
 }
 
 function freezeState(state: PresentationState): PresentationState {

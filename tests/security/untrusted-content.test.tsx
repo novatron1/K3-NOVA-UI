@@ -14,7 +14,7 @@ function InertBlocks({ blocks }: { readonly blocks: readonly MessageBlock[] }) {
     blocks.map((block, index) => createElement(
       "span",
       { key: index },
-      block.text,
+      block.kind === "code" ? block.code : block.text,
     )),
   );
 }
@@ -30,13 +30,16 @@ describe("parseUntrustedContent", () => {
   });
 
   it("permits a fenced Markdown code block as inert code", () => {
-    expect(parseUntrustedContent(
+    const blocks = parseUntrustedContent(
       "Before\n```tsx\nconst answer = 42;\n```\nAfter",
-    )).toEqual([
+    );
+
+    expect(blocks).toEqual([
       { kind: "text", text: "Before\n" },
-      { kind: "code", language: "tsx", text: "const answer = 42;\n" },
+      { kind: "code", language: "tsx", code: "const answer = 42;\n" },
       { kind: "text", text: "\nAfter" },
     ]);
+    expect(blocks[1]).not.toHaveProperty("text");
   });
 
   it("does not interpret JSON tool_calls as an action", () => {
@@ -79,7 +82,7 @@ describe("parseUntrustedContent", () => {
 
     expect(parseUntrustedContent(source)).toEqual([
       { kind: "text", text: "Before\n" },
-      { kind: "code", language: "typescript", text: "x".repeat(200_000) },
+      { kind: "code", language: "typescript", code: "x".repeat(200_000) },
     ]);
   });
 

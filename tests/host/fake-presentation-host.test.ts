@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { HostPresentationEvent } from "../../src/domain/presentation-events";
@@ -154,6 +154,19 @@ function guardConsole(source: Console): {
     spies: Object.freeze(spies),
   });
 }
+
+const privateSubmissionCases = [
+  {
+    name: "submit text never persists the prompt",
+    kind: "text",
+    sentinel: "RAW_PROMPT_SENTINEL_7EAC9C43",
+  },
+  {
+    name: "submit voice transcript never persists the transcript",
+    kind: "voice",
+    sentinel: "RAW_VOICE_TRANSCRIPT_SENTINEL_C34E1B7A",
+  },
+] as const;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -311,9 +324,58 @@ describe("FakePresentationHost", () => {
     expect(emitted).toEqual([]);
   });
 
-  it("submit text never persists the prompt", async () => {
+  it("closes before session_closed callbacks can submit reentrant work", async () => {
+    const emitted: HostPresentationEvent[] = [];
+    const submittedTexts: string[] = [];
+    let submittedVoiceTranscripts = 0;
+    let permissionDecisions = 0;
+    let session: PresentationSession | null = null;
+    const closeEvent = {
+      type: "session_closed",
+      reason: "completed",
+    } satisfies HostPresentationEvent;
+    const host = new FakePresentationHost(makeScript({
+      onText: (text) => {
+        submittedTexts.push(text);
+        return text === "complete session"
+          ? [closeEvent]
+          : [messageEvent("reentrant-text", "must never emit")];
+      },
+      onVoiceTranscript: () => {
+        submittedVoiceTranscripts += 1;
+        return [messageEvent("reentrant-voice", "must never emit")];
+      },
+      onPermission: () => {
+        permissionDecisions += 1;
+        return [messageEvent("reentrant-permission", "must never emit")];
+      },
+    }), new SynchronousClock());
+
+    session = await host.connect({
+      onEvent: (event) => {
+        const validatedEvent = event as HostPresentationEvent;
+        emitted.push(validatedEvent);
+        if (validatedEvent.type === "session_closed" && session !== null) {
+          void session.submitText("reentrant submission");
+          void session.submitVoiceTranscript("reentrant transcript");
+          void session.decidePermission("reentrant-approval", "approve");
+        }
+      },
+      onFatalError: () => {
+        throw new Error("validated session closure must not become fatal");
+      },
+    }, new AbortController().signal);
+
+    await session.submitText("complete session");
+
+    expect(submittedTexts).toEqual(["complete session"]);
+    expect(submittedVoiceTranscripts).toBe(0);
+    expect(permissionDecisions).toBe(0);
+    expect(emitted).toEqual([closeEvent]);
+  });
+
+  it.each(privateSubmissionCases)("$name", async ({ kind, sentinel }) => {
     const clock = new ManualClock();
-    const promptSentinel = "RAW_PROMPT_SENTINEL_7EAC9C43";
     const initialHref = window.location.href;
     const initialSearch = window.location.search;
     const storageWrite = vi.spyOn(Storage.prototype, "setItem");
@@ -349,15 +411,20 @@ describe("FakePresentationHost", () => {
       configurable: true,
       value: { register: serviceWorkerRegister },
     });
-    let generatedSynchronously = false;
+    let scriptCallCount = 0;
     let submissionError: unknown = null;
     const hostHandlers = handlers();
+    const receivePrivateInput = (
+      privateInput: string,
+    ): readonly HostPresentationEvent[] => {
+      expect(privateInput).toBe(sentinel);
+      scriptCallCount += 1;
+      return [messageEvent("response", "synthetic response")];
+    };
     const host = new FakePresentationHost(makeScript({
-      onText: (text) => {
-        expect(text).toBe(promptSentinel);
-        generatedSynchronously = true;
-        return [messageEvent("response", "synthetic response")];
-      },
+      ...(kind === "text"
+        ? { onText: receivePrivateInput }
+        : { onVoiceTranscript: receivePrivateInput }),
     }), clock);
 
     try {
@@ -365,16 +432,20 @@ describe("FakePresentationHost", () => {
         hostHandlers,
         new AbortController().signal,
       );
+      const submitPrivateInput = kind === "text"
+        ? session.submitText
+        : session.submitVoiceTranscript;
       try {
-        await session.submitText(promptSentinel);
+        await submitPrivateInput(sentinel);
       } catch (error: unknown) {
         submissionError = error;
       }
       expect(clock.pendingCount).toBeGreaterThan(0);
       clock.flushAll();
       await session.close();
+      await submitPrivateInput(sentinel);
 
-      expect(generatedSynchronously).toBe(true);
+      expect(scriptCallCount).toBe(1);
       expect(hostHandlers.events).toEqual([
         messageEvent("response", "synthetic response"),
       ]);
@@ -389,9 +460,9 @@ describe("FakePresentationHost", () => {
             message: submissionError.message,
           }
           : submissionError,
-      })).not.toContain(promptSentinel);
-      expect(window.localStorage.getItem(promptSentinel)).toBeNull();
-      expect(window.sessionStorage.getItem(promptSentinel)).toBeNull();
+      })).not.toContain(sentinel);
+      expect(window.localStorage.getItem(sentinel)).toBeNull();
+      expect(window.sessionStorage.getItem(sentinel)).toBeNull();
       expect(storageWrite).not.toHaveBeenCalled();
       for (const consoleMethod of consoleGuard.spies) {
         expect(
@@ -510,6 +581,98 @@ describe("FakePresentationHost", () => {
       expect(voiceCancel).toHaveBeenCalledTimes(1);
     });
     expect((connectedSignal as AbortSignal | null)?.aborted).toBe(true);
+  });
+
+  it("latches session closure before ignoring later adapter callbacks", async () => {
+    const cleanupSentinel = "CLOSED_SESSION_CLEANUP_PRIVATE_SENTINEL";
+    const close = vi.fn<PresentationSession["close"]>().mockRejectedValue(
+      new Error(cleanupSentinel),
+    );
+    const session: PresentationSession = {
+      submitText: async () => {},
+      submitVoiceTranscript: async () => {},
+      decidePermission: async () => {},
+      cancel: async () => {},
+      close,
+    };
+    const connectionState: {
+      handlers: PresentationHostHandlers | null;
+      signal: AbortSignal | null;
+    } = {
+      handlers: null,
+      signal: null,
+    };
+    const connect = vi.fn<PresentationHostAdapter["connect"]>(
+      (hostHandlers, signal) => {
+        connectionState.handlers = hostHandlers;
+        connectionState.signal = signal;
+        return Promise.resolve(session);
+      },
+    );
+    const host: PresentationHostAdapter = { connect };
+    const voiceCancel = vi.fn<VoiceCaptureAdapter["cancel"]>().mockRejectedValue(
+      new Error(cleanupSentinel),
+    );
+    const voice: VoiceCaptureAdapter = {
+      available: true,
+      start: async () => {},
+      stopForReview: async () => "review",
+      cancel: voiceCancel,
+    };
+    const view = renderHook(() => usePresentationController(host, voice));
+
+    await waitFor(() => {
+      expect(connect).toHaveBeenCalledTimes(1);
+      expect(connectionState.handlers).not.toBeNull();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const hostHandlers = connectionState.handlers;
+    if (hostHandlers === null) {
+      throw new Error("adapter handlers were not connected");
+    }
+
+    act(() => {
+      hostHandlers.onEvent({
+        type: "snapshot",
+        snapshot: makeSnapshot({
+          phase: "idle",
+          statusLabel: "Stable before closure",
+        }),
+      });
+      hostHandlers.onEvent({
+        type: "session_closed",
+        reason: "completed",
+      });
+      hostHandlers.onEvent({
+        type: "snapshot",
+        snapshot: makeSnapshot({
+          phase: "responding",
+          statusLabel: "Must be ignored after closure",
+        }),
+      });
+      hostHandlers.onEvent(
+        messageEvent("late-message", "must be ignored after closure"),
+      );
+      hostHandlers.onFatalError("host_unavailable");
+    });
+
+    await waitFor(() => {
+      expect(view.result.current.sessionState).toBe("closed");
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(voiceCancel).toHaveBeenCalledTimes(1);
+    });
+    expect(view.result.current.snapshot.phase).toBe("idle");
+    expect(view.result.current.snapshot.statusLabel).toBe(
+      "Stable before closure",
+    );
+    expect(view.result.current.messages).toEqual([]);
+    expect(view.result.current.sessionError).toBeNull();
+    expect(JSON.stringify(view.result.current)).not.toContain(cleanupSentinel);
+    expect(connectionState.signal?.aborted).toBe(true);
+
+    view.unmount();
   });
 
   it("contains synchronous host connection failures", async () => {

@@ -52,6 +52,15 @@ export function usePresentationController(
     let terminated = false;
     let session: PresentationSession | null = null;
 
+    const cleanupAdapters = (): void => {
+      abortController.abort();
+      ignoreFailure(() => voiceCapture.cancel());
+      if (session !== null) {
+        const connectedSession = session;
+        ignoreFailure(() => connectedSession.close());
+      }
+    };
+
     const terminate = (
       code: "invalid_event" | "host_unavailable",
     ): void => {
@@ -61,12 +70,7 @@ export function usePresentationController(
 
       terminated = true;
       dispatch({ type: "host_event", event: failureEvent(code) });
-      abortController.abort();
-      ignoreFailure(() => voiceCapture.cancel());
-      if (session !== null) {
-        const connectedSession = session;
-        ignoreFailure(() => connectedSession.close());
-      }
+      cleanupAdapters();
     };
 
     let connection: Promise<PresentationSession> | null = null;
@@ -80,6 +84,13 @@ export function usePresentationController(
           const validation = validateHostEvent(candidate);
           if (!validation.ok) {
             terminate("invalid_event");
+            return;
+          }
+
+          if (validation.event.type === "session_closed") {
+            terminated = true;
+            dispatch({ type: "host_event", event: validation.event });
+            cleanupAdapters();
             return;
           }
 
@@ -109,12 +120,7 @@ export function usePresentationController(
     return () => {
       active = false;
       terminated = true;
-      abortController.abort();
-      if (session !== null) {
-        const connectedSession = session;
-        ignoreFailure(() => connectedSession.close());
-      }
-      ignoreFailure(() => voiceCapture.cancel());
+      cleanupAdapters();
     };
   }, [host, voiceCapture]);
 

@@ -6,7 +6,7 @@ export type MessageBlock = Readonly<
   | {
     readonly kind: "code";
     readonly language: string | null;
-    readonly text: string;
+    readonly code: string;
   }
 >;
 
@@ -16,8 +16,8 @@ function textBlock(text: string): MessageBlock {
   return Object.freeze({ kind: "text" as const, text });
 }
 
-function codeBlock(language: string | null, text: string): MessageBlock {
-  return Object.freeze({ kind: "code" as const, language, text });
+function codeBlock(language: string | null, code: string): MessageBlock {
+  return Object.freeze({ kind: "code" as const, language, code });
 }
 
 function startsFence(text: string, index: number): boolean {

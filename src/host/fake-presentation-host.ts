@@ -149,15 +149,14 @@ class FakePresentationSession implements PresentationSession {
           return;
         }
 
+        if (event.type === "session_closed") {
+          this.closeNow();
+        }
+
         try {
           this.handlers.onEvent(event);
         } catch {
           this.failClosed("host_unavailable");
-          return;
-        }
-
-        if (event.type === "session_closed") {
-          this.closeNow();
         }
       });
     } catch {

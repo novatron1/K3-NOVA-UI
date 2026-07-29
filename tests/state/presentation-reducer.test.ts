@@ -6,6 +6,13 @@ import {
 } from "../../src/state/presentation-reducer";
 import { makeSnapshot } from "../../src/test/fixtures";
 
+function stateWithOpenContractOrgan() {
+  return presentationReducer(createInitialPresentationState(), {
+    type: "organ_toggled",
+    organId: "contract",
+  });
+}
+
 describe("presentationReducer", () => {
   it("starts unavailable and fail-closed", () => {
     const state = createInitialPresentationState();
@@ -221,6 +228,73 @@ describe("presentationReducer", () => {
     expect(Object.isFrozen(next.displayPreferences)).toBe(true);
     expect(Object.isFrozen(next.openOrgans)).toBe(true);
     expect(() => (next.openOrgans as Set<string>).add("ledger")).toThrow();
+  });
+
+  it("does not reveal a mutable backing Set through valueOf", () => {
+    const openOrgans = stateWithOpenContractOrgan().openOrgans;
+    const value = openOrgans.valueOf();
+    let mutationWasBlocked = false;
+
+    try {
+      (value as Set<string>).add("ledger");
+    } catch (error: unknown) {
+      mutationWasBlocked = error instanceof TypeError;
+    }
+
+    expect(value).toBe(openOrgans);
+    expect(mutationWasBlocked).toBe(true);
+    expect([...openOrgans]).toEqual(["contract"]);
+  });
+
+  it("passes the public immutable facade to forEach callbacks", () => {
+    const openOrgans = stateWithOpenContractOrgan().openOrgans;
+    const callbackSets: ReadonlySet<string>[] = [];
+
+    openOrgans.forEach((value, duplicate, publicSet) => {
+      expect(duplicate).toBe(value);
+      callbackSets.push(publicSet);
+    });
+
+    expect(callbackSets).toEqual([openOrgans]);
+  });
+
+  it("does not expose mutable Set methods even through a cast", () => {
+    const openOrgans = stateWithOpenContractOrgan().openOrgans;
+    const castSet = openOrgans as Set<string>;
+
+    expect(Reflect.has(castSet, "add")).toBe(false);
+    expect(Reflect.has(castSet, "delete")).toBe(false);
+    expect(Reflect.has(castSet, "clear")).toBe(false);
+    expect(castSet.add).toBeUndefined();
+    expect(castSet.delete).toBeUndefined();
+    expect(castSet.clear).toBeUndefined();
+  });
+
+  it("rejects native Set mutators without changing the facade", () => {
+    const openOrgans = stateWithOpenContractOrgan().openOrgans;
+
+    expect(() => Set.prototype.add.call(openOrgans, "ledger")).toThrow(TypeError);
+    expect(openOrgans).not.toBeInstanceOf(Set);
+    expect([...openOrgans]).toEqual(["contract"]);
+  });
+
+  it("implements the complete frozen ReadonlySet traversal surface", () => {
+    const openOrgans = stateWithOpenContractOrgan().openOrgans;
+    const forEachValues: string[] = [];
+
+    openOrgans.forEach((value) => {
+      forEachValues.push(value);
+    });
+
+    expect(openOrgans.size).toBe(1);
+    expect(openOrgans.has("contract")).toBe(true);
+    expect([...openOrgans.entries()]).toEqual([["contract", "contract"]]);
+    expect([...openOrgans.keys()]).toEqual(["contract"]);
+    expect([...openOrgans.values()]).toEqual(["contract"]);
+    expect([...openOrgans]).toEqual(["contract"]);
+    expect(forEachValues).toEqual(["contract"]);
+    expect(Object.prototype.toString.call(openOrgans)).toBe("[object Set]");
+    expect(Object.isFrozen(openOrgans)).toBe(true);
   });
 
   it("rejects unsupported runtime actions and events fail-closed", () => {
