@@ -1,0 +1,236 @@
+:global(.nova-shell) {
+  min-height: 100vh;
+  overflow: hidden;
+  padding: clamp(1.25rem, 4vw, 4rem);
+  background:
+    radial-gradient(circle at 50% 48%, color-mix(in srgb, var(--nova-trust-accent) 12%, transparent), transparent 32rem),
+    linear-gradient(160deg, #030706 0%, #07110d 50%, #020504 100%);
+  color: var(--nova-text);
+}
+
+:global(.nova-header) {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+  max-width: 90rem;
+  margin: 0 auto;
+}
+
+:global(.nova-header) h1,
+:global(.nova-shrine-heading) h2,
+:global(.nova-header) p,
+:global(.nova-shrine-heading) p {
+  margin: 0;
+}
+
+:global(.nova-header) h1 {
+  margin-top: 0.15rem;
+  font-size: clamp(1.8rem, 4vw, 3.4rem);
+  font-weight: 520;
+  letter-spacing: -0.045em;
+}
+
+:global(.nova-eyebrow),
+:global(.nova-shrine-heading) p {
+  color: var(--nova-text-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.19em;
+  text-transform: uppercase;
+}
+
+:global(.nova-header) aside {
+  display: grid;
+  min-width: min(20rem, 46vw);
+  padding: 0.8rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--nova-trust-accent) 52%, transparent);
+  border-radius: 1.15rem;
+  background: color-mix(in srgb, var(--nova-surface-organic) 82%, transparent);
+  box-shadow:
+    inset 0 0 1.6rem color-mix(in srgb, var(--nova-trust-accent) 7%, transparent),
+    0 0 1.8rem color-mix(in srgb, var(--nova-trust-accent) 7%, transparent);
+  grid-template-columns: 1fr auto;
+  gap: 0.25rem 1rem;
+}
+
+:global(.nova-header) aside div {
+  display: flex;
+  align-items: center;
+  grid-column: 1 / -1;
+  gap: 0.55rem;
+  color: var(--nova-trust-accent);
+}
+
+:global(.nova-header) aside strong {
+  color: var(--nova-text);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:global(.nova-header) aside p {
+  color: var(--nova-text-muted);
+  font-size: 0.7rem;
+}
+
+:global(.nova-header) aside p:last-child {
+  text-align: right;
+}
+
+:global(.nova-shrine) {
+  position: relative;
+  display: grid;
+  min-height: min(68vh, 46rem);
+  max-width: 90rem;
+  margin: 0 auto;
+  place-items: center;
+}
+
+:global(.nova-shrine)::before {
+  position: absolute;
+  width: min(52rem, 86vw);
+  height: min(52rem, 86vw);
+  border: 1px solid color-mix(in srgb, var(--nova-trust-accent) 13%, transparent);
+  border-radius: 50%;
+  background:
+    repeating-radial-gradient(
+      circle,
+      transparent 0 2.7rem,
+      color-mix(in srgb, var(--nova-trust-accent) 5%, transparent) 2.75rem 2.8rem
+    );
+  content: "";
+  pointer-events: none;
+}
+
+:global(.nova-shrine-heading) {
+  position: absolute;
+  top: 10%;
+  z-index: 1;
+  text-align: center;
+}
+
+:global(.nova-shrine-heading) h2 {
+  margin-top: 0.4rem;
+  font-size: clamp(1.1rem, 2vw, 1.5rem);
+  font-weight: 450;
+  letter-spacing: 0.05em;
+}
+
+:global(.nova-core) {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+}
+
+:global(.nova-core) section {
+  display: grid;
+  justify-items: center;
+  gap: 2.25rem;
+}
+
+:global(.nova-core) button {
+  position: relative;
+  width: clamp(13rem, 28vw, 21rem);
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--nova-trust-accent);
+  cursor: pointer;
+  isolation: isolate;
+}
+
+:global(.nova-core) button:disabled {
+  cursor: not-allowed;
+}
+
+:global(.nova-core) button [data-core-layer] {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+:global(.nova-core) button [data-core-layer="outer-membrane"] {
+  border: 1px solid color-mix(in srgb, currentColor 48%, transparent);
+  background:
+    radial-gradient(circle at 37% 32%, color-mix(in srgb, currentColor 18%, transparent), transparent 28%),
+    radial-gradient(circle at 62% 66%, color-mix(in srgb, currentColor 12%, transparent), transparent 34%);
+  box-shadow:
+    inset 0 0 3rem color-mix(in srgb, currentColor 13%, transparent),
+    0 0 3rem color-mix(in srgb, currentColor 17%, transparent);
+  animation: var(--nova-phase-animation) var(--nova-motion-ambient) ease-in-out infinite;
+}
+
+:global(.nova-core) button [data-core-layer="neural-lattice"] {
+  inset: 13%;
+  border: 1px dashed color-mix(in srgb, currentColor 62%, transparent);
+  background:
+    repeating-conic-gradient(
+      from 12deg,
+      transparent 0 16deg,
+      color-mix(in srgb, currentColor 14%, transparent) 17deg 18deg
+    );
+  box-shadow: inset 0 0 2rem color-mix(in srgb, currentColor 14%, transparent);
+  animation: var(--nova-phase-animation) var(--nova-motion-ambient) ease-in-out infinite reverse;
+}
+
+:global(.nova-core) button [data-core-layer="luminous-nucleus"] {
+  inset: 34%;
+  background: radial-gradient(
+    circle at 42% 35%,
+    #ffffff 0 3%,
+    currentColor 14%,
+    color-mix(in srgb, currentColor 40%, transparent) 45%,
+    transparent 75%
+  );
+  box-shadow:
+    0 0 2rem currentColor,
+    0 0 5rem color-mix(in srgb, currentColor 55%, transparent);
+  animation: var(--nova-phase-animation) calc(var(--nova-motion-ambient) * 0.72) ease-in-out infinite;
+}
+
+:global(.nova-core) section > p {
+  min-width: min(28rem, 78vw);
+  margin: 0;
+  padding: 0.7rem 1.1rem;
+  border-block: 1px solid color-mix(in srgb, var(--nova-trust-accent) 30%, transparent);
+  color: var(--nova-text);
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+}
+
+:global(.nova-conversation) {
+  min-height: 1px;
+}
+
+:global(.nova-announcer) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 42rem) {
+  :global(.nova-header) {
+    display: grid;
+  }
+
+  :global(.nova-header) aside {
+    width: 100%;
+    min-width: 0;
+  }
+
+  :global(.nova-shrine) {
+    min-height: 62vh;
+  }
+}
