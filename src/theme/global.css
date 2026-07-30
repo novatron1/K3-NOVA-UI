@@ -1,0 +1,49 @@
+@import "./tokens.css";
+@import "./motion.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  color: var(--nova-text);
+  background: var(--nova-surface-void);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--nova-surface-void);
+}
+
+:focus-visible {
+  outline: 2px solid var(--nova-focus);
+  outline-offset: 3px;
+}
+
+.nova-critical-surface {
+  background: color-mix(in srgb, var(--nova-surface-organic) 88%, transparent);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--nova-trust-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .nova-critical-surface {
+    background: var(--nova-surface-void);
+    backdrop-filter: none;
+    border-width: 2px;
+  }
+}

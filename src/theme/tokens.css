@@ -1,0 +1,65 @@
+:root {
+  --nova-surface-void: #030706;
+  --nova-surface-organic: #07110d;
+  --nova-local: #4df6d2;
+  --nova-biologic: #a8ff42;
+  --nova-cloud: #9c7cff;
+  --nova-approval: #ffc857;
+  --nova-deny: #ff4d5e;
+  --nova-unavailable: #8a9591;
+  --nova-text: #e8fff7;
+  --nova-text-muted: #9eb8af;
+  --nova-focus: #ffffff;
+  --nova-motion-ambient: 8s;
+  --nova-motion-state: 320ms;
+
+  --nova-trust-trusted-local: var(--nova-local);
+  --nova-trust-explicit-cloud: var(--nova-cloud);
+  --nova-trust-approval-required: var(--nova-approval);
+  --nova-trust-deterministic-deny: var(--nova-deny);
+  --nova-trust-fail-closed: var(--nova-unavailable);
+  --nova-trust-accent: var(--nova-unavailable);
+  --nova-phase-animation: none;
+}
+
+[data-trust-tone="trusted_local"] {
+  --nova-trust-accent: var(--nova-trust-trusted-local);
+}
+
+[data-trust-tone="explicit_cloud"] {
+  --nova-trust-accent: var(--nova-trust-explicit-cloud);
+}
+
+[data-trust-tone="approval_required"] {
+  --nova-trust-accent: var(--nova-trust-approval-required);
+}
+
+[data-trust-tone="deterministic_deny"] {
+  --nova-trust-accent: var(--nova-trust-deterministic-deny);
+}
+
+[data-trust-tone="fail_closed"] {
+  --nova-trust-accent: var(--nova-trust-fail-closed);
+}
+
+[data-phase="idle"],
+[data-phase="paused"],
+[data-phase="cancelled"],
+[data-phase="unavailable"] {
+  --nova-phase-animation: nova-breathe;
+}
+
+[data-phase="listening"] {
+  --nova-phase-animation: nova-listen-ripple;
+}
+
+[data-phase="input_review"],
+[data-phase="approval_required"],
+[data-phase="deterministic_deny"] {
+  --nova-phase-animation: nova-path-pulse;
+}
+
+[data-phase="processing"],
+[data-phase="responding"] {
+  --nova-phase-animation: nova-process-shift;
+}

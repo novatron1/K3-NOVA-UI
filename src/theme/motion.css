@@ -1,0 +1,50 @@
+@keyframes nova-breathe {
+  0%,
+  100% {
+    opacity: 0.82;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.015);
+  }
+}
+
+@keyframes nova-path-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+    stroke-dashoffset: 0;
+  }
+
+  50% {
+    opacity: 1;
+    stroke-dashoffset: 12;
+  }
+}
+
+@keyframes nova-listen-ripple {
+  0% {
+    opacity: 0.72;
+    transform: scale(0.96);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.16);
+  }
+}
+
+@keyframes nova-process-shift {
+  0%,
+  100% {
+    filter: saturate(0.92);
+    transform: translateX(0);
+  }
+
+  50% {
+    filter: saturate(1.18);
+    transform: translateX(2px);
+  }
+}
