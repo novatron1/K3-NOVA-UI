@@ -57,6 +57,7 @@ const inactiveActions: PresentationControllerActions = {
   onDiscardVoiceReview: () => {},
   onVoiceStart: () => {},
   onVoiceStop: () => {},
+  onPermissionDecision: async () => {},
   onCancel: async () => {},
 };
 

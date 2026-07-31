@@ -8,6 +8,9 @@ import {
 
 import type { HostPresentationEvent } from "../domain/presentation-events";
 import type {
+  TrustedPermissionGate,
+} from "../domain/presentation-types";
+import type {
   PresentationHostAdapter,
   PresentationSession,
 } from "../host/presentation-host";
@@ -61,6 +64,10 @@ export interface PresentationControllerActions {
   readonly onDiscardVoiceReview: () => void;
   readonly onVoiceStart: () => void;
   readonly onVoiceStop: () => void;
+  readonly onPermissionDecision: (
+    approvalRequestId: string,
+    decision: "approve" | "deny" | "cancel",
+  ) => Promise<void>;
   readonly onCancel: () => Promise<void>;
 }
 
@@ -79,6 +86,8 @@ interface ControllerRuntime {
   sessionTeardown: Promise<void> | null;
   voiceTeardown: Promise<void> | null;
   aborted: boolean;
+  permissionGate: TrustedPermissionGate | null;
+  readonly decidedPermissionRequests: Set<string>;
 }
 
 function abortOnce(runtime: ControllerRuntime): void {
@@ -158,6 +167,8 @@ export function usePresentationController(
       sessionTeardown: null,
       voiceTeardown: null,
       aborted: false,
+      permissionGate: null,
+      decidedPermissionRequests: new Set(),
     };
     runtimeRef.current = runtime;
 
@@ -198,6 +209,10 @@ export function usePresentationController(
             dispatch({ type: "host_event", event: validation.event });
             cleanupAdapters("close");
             return;
+          }
+
+          if (validation.event.type === "snapshot") {
+            runtime.permissionGate = validation.event.snapshot.permissionGate;
           }
 
           dispatch({ type: "host_event", event: validation.event });
@@ -375,6 +390,37 @@ export function usePresentationController(
     });
   }, [voiceCapture]);
 
+  const onPermissionDecision = useCallback((
+    approvalRequestId: string,
+    decision: "approve" | "deny" | "cancel",
+  ): Promise<void> => {
+    const runtime = runtimeRef.current;
+    if (
+      runtime === null
+      || !runtime.active
+      || runtime.terminated
+    ) {
+      return Promise.resolve();
+    }
+
+    const gate = runtime.permissionGate;
+    const session = runtime.session;
+    if (
+      gate === null
+      || session === null
+      || gate.approvalRequestId !== approvalRequestId
+      || !gate.choices.includes(decision)
+      || runtime.decidedPermissionRequests.has(approvalRequestId)
+    ) {
+      return Promise.resolve();
+    }
+
+    runtime.decidedPermissionRequests.add(approvalRequestId);
+    return containOperation(
+      () => session.decidePermission(approvalRequestId, decision),
+    );
+  }, []);
+
   const onCancel = useCallback(async (): Promise<void> => {
     const runtime = runtimeRef.current;
     if (runtime === null || !runtime.active || runtime.terminated) {
@@ -403,11 +449,13 @@ export function usePresentationController(
     onDiscardVoiceReview,
     onVoiceStart,
     onVoiceStop,
+    onPermissionDecision,
     onCancel,
   }), [
     onCancel,
     onDiscardVoiceReview,
     onDraftChange,
+    onPermissionDecision,
     onSubmitText,
     onSubmitVoiceReview,
     onVoiceStart,
