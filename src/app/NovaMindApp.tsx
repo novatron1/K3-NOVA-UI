@@ -22,6 +22,9 @@ function unavailableVoiceAction(): void {}
 
 export function NovaMindApp({ state }: NovaMindAppProps) {
   const { snapshot } = state;
+  const visibleMessages = snapshot.phase === "processing"
+    ? state.messages.filter((message) => message.author === "user")
+    : state.messages;
 
   return (
     <main
@@ -62,7 +65,7 @@ export function NovaMindApp({ state }: NovaMindAppProps) {
         className="nova-conversation"
         aria-label="Conversation"
       >
-        <ConversationField messages={state.messages} />
+        <ConversationField messages={visibleMessages} />
       </section>
 
       <div className="nova-announcer">

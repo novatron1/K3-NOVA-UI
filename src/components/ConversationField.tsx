@@ -11,6 +11,10 @@ function messageLabel(author: UntrustedMessage["author"]): string {
 }
 
 export function ConversationField({ messages }: ConversationFieldProps) {
+  if (messages.length === 0) {
+    return null;
+  }
+
   return (
     <div className="conversation-field">
       {messages.map((message) => (
