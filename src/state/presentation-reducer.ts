@@ -6,6 +6,7 @@ import type {
 } from "../domain/presentation-types";
 import {
   createUnavailableSnapshot,
+  trustedActivePermissionGate,
 } from "../domain/presentation-types";
 import type {
   HostPresentationEvent,
@@ -256,7 +257,7 @@ function withHostEvent(
       }
       return freezeState({
         ...state,
-        snapshot: state.snapshot.permissionGate === null
+        snapshot: trustedActivePermissionGate(state.snapshot) === null
           ? state.snapshot
           : createUnavailableSnapshot(),
         sessionState: "failed",
@@ -309,7 +310,7 @@ export function presentationReducer(
         return assertNever(action as never);
       }
       if (
-        state.snapshot.permissionGate?.approvalRequestId
+        trustedActivePermissionGate(state.snapshot)?.approvalRequestId
         !== action.approvalRequestId
       ) {
         return state;

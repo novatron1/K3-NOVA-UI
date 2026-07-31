@@ -7,8 +7,9 @@ import {
 } from "react";
 
 import type { HostPresentationEvent } from "../domain/presentation-events";
-import type {
-  TrustedPermissionGate,
+import {
+  trustedActivePermissionGate,
+  type TrustedPermissionGate,
 } from "../domain/presentation-types";
 import type {
   PresentationHostAdapter,
@@ -256,7 +257,9 @@ export function usePresentationController(
           }
 
           if (validation.event.type === "snapshot") {
-            runtime.permissionGate = validation.event.snapshot.permissionGate;
+            runtime.permissionGate = trustedActivePermissionGate(
+              validation.event.snapshot,
+            );
           }
 
           dispatch({ type: "host_event", event: validation.event });

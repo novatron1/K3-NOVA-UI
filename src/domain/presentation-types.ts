@@ -82,6 +82,14 @@ export interface SanitizedHostSnapshot {
   readonly permissionGate: TrustedPermissionGate | null;
 }
 
+export function trustedActivePermissionGate(
+  snapshot: SanitizedHostSnapshot,
+): TrustedPermissionGate | null {
+  return snapshot.phase === "approval_required"
+    ? snapshot.permissionGate
+    : null;
+}
+
 export type LivingOrganId =
   | "contract"
   | "permissions"

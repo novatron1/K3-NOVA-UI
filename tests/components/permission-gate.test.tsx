@@ -31,7 +31,10 @@ import {
   usePresentationController,
 } from "../../src/state/use-presentation-controller";
 import { makeSnapshot } from "../../src/test/fixtures";
-import { UnavailableVoiceCapture } from "../../src/voice/voice-capture";
+import {
+  UnavailableVoiceCapture,
+  type VoiceCaptureAdapter,
+} from "../../src/voice/voice-capture";
 
 function deferred<T>(): {
   readonly promise: Promise<T>;
@@ -124,12 +127,17 @@ function sessionWith(
 function ControllerApp({
   host,
   onController,
+  voice,
 }: {
   readonly host: PresentationHostAdapter;
   readonly onController: (controller: PresentationController) => void;
+  readonly voice?: VoiceCaptureAdapter;
 }) {
-  const [voice] = useState(() => new UnavailableVoiceCapture());
-  const controller = usePresentationController(host, voice);
+  const [unavailableVoice] = useState(() => new UnavailableVoiceCapture());
+  const controller = usePresentationController(
+    host,
+    voice ?? unavailableVoice,
+  );
   onController(controller);
   return <NovaMindApp state={controller} controller={controller} />;
 }
@@ -646,6 +654,119 @@ describe("trusted permission gate", () => {
       .not.toHaveAttribute("inert");
     expect(connection.signal?.aborted).toBe(true);
     opener.remove();
+  });
+
+  it("keeps contradictory deterministic-deny gates dormant through recoverable errors", async () => {
+    const close = vi.fn<PresentationSession["close"]>().mockResolvedValue();
+    const session = sessionWith({ close });
+    const connection: {
+      handlers: PresentationHostHandlers | null;
+      signal: AbortSignal | null;
+    } = {
+      handlers: null,
+      signal: null,
+    };
+    const host: PresentationHostAdapter = {
+      connect: async (handlers, signal) => {
+        connection.handlers = handlers;
+        connection.signal = signal;
+        return session;
+      },
+    };
+    const voiceCancel = vi.fn<VoiceCaptureAdapter["cancel"]>().mockResolvedValue();
+    const voice: VoiceCaptureAdapter = {
+      available: true,
+      start: async () => {},
+      stopForReview: async () => "review",
+      cancel: voiceCancel,
+    };
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    const { unmount } = render(
+      <ControllerApp
+        host={host}
+        onController={(value) => {
+          controller.current = value;
+        }}
+        voice={voice}
+      />,
+    );
+    await waitFor(() => {
+      expect(connection.handlers).not.toBeNull();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      connection.handlers?.onEvent({
+        type: "snapshot",
+        snapshot: makeSnapshot({
+          phase: "deterministic_deny",
+          trustTone: "deterministic_deny",
+          permissionGate: makeGate({
+            approvalRequestId: "dormant-deterministic-deny",
+            choices: ["approve", "deny", "cancel"],
+          }),
+        }),
+      });
+    });
+    await waitFor(() => {
+      expect(controller.current?.snapshot.phase).toBe("deterministic_deny");
+    });
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve" }))
+      .not.toBeInTheDocument();
+
+    act(() => {
+      connection.handlers?.onEvent({
+        type: "session_error",
+        code: "timeout",
+        label: "Temporary presentation delay.",
+      });
+    });
+    await waitFor(() => {
+      expect(controller.current?.sessionState).toBe("failed");
+    });
+    expect(controller.current?.snapshot.phase).toBe("deterministic_deny");
+    expect(controller.current?.snapshot.permissionGate?.approvalRequestId)
+      .toBe("dormant-deterministic-deny");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve" }))
+      .not.toBeInTheDocument();
+    expect(close).not.toHaveBeenCalled();
+    expect(voiceCancel).not.toHaveBeenCalled();
+    expect(connection.signal?.aborted).toBe(false);
+
+    act(() => {
+      connection.handlers?.onEvent({
+        type: "snapshot",
+        snapshot: makeSnapshot({
+          phase: "responding",
+          trustTone: "trusted_local",
+          statusLabel: "Recovered after dormant gate error",
+          permissionGate: null,
+        }),
+      });
+    });
+    await waitFor(() => {
+      expect(controller.current?.sessionState).toBe("connected");
+      expect(controller.current?.snapshot.phase).toBe("responding");
+      expect(controller.current?.snapshot.statusLabel).toBe(
+        "Recovered after dormant gate error",
+      );
+    });
+    expect(controller.current?.sessionError).toBeNull();
+    expect(close).not.toHaveBeenCalled();
+    expect(voiceCancel).not.toHaveBeenCalled();
+    expect(connection.signal?.aborted).toBe(false);
+
+    unmount();
+    await waitFor(() => {
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(voiceCancel).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("offers only host-provided permitted choices", () => {

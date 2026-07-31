@@ -4,7 +4,10 @@ import { ComposerMembrane } from "../components/ComposerMembrane";
 import { PermissionGate } from "../components/PermissionGate";
 import { StatusAnnouncer } from "../components/StatusAnnouncer";
 import { TrustHalo } from "../components/TrustHalo";
-import type { TrustTone } from "../domain/presentation-types";
+import {
+  trustedActivePermissionGate,
+  type TrustTone,
+} from "../domain/presentation-types";
 import type { PresentationState } from "../state/presentation-reducer";
 import type {
   PresentationControllerActions,
@@ -46,10 +49,9 @@ export function NovaMindApp({
   const visibleMessages = snapshot.phase === "processing"
     ? state.messages.filter((message) => message.author === "user")
     : state.messages;
-  const permissionGate = !sessionTerminal
-    && snapshot.phase === "approval_required"
-    ? snapshot.permissionGate
-    : null;
+  const permissionGate = sessionTerminal
+    ? null
+    : trustedActivePermissionGate(snapshot);
 
   return (
     <main
