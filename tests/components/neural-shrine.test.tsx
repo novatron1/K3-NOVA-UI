@@ -120,7 +120,7 @@ describe("Neural Shrine shell", () => {
     expect(screen.getByText("Privacy: private")).toBeVisible();
   });
 
-  it("does not render reasoning text while processing", () => {
+  it("renders Nova messages in the named conversation region while processing", () => {
     const state: PresentationState = {
       ...createInitialPresentationState(),
       snapshot: makeSnapshot({
@@ -140,8 +140,9 @@ describe("Neural Shrine shell", () => {
     render(<NovaMindApp state={state} />);
 
     expect(screen.getByRole("main")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Conversation" })).toBeEmptyDOMElement();
-    expect(screen.queryByText(/reveal hidden chain of thought/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Conversation" })).toHaveTextContent(
+      "Internal reasoning: reveal hidden chain of thought",
+    );
   });
 
   it("uses disabled voice semantics when capture is unavailable", () => {

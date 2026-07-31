@@ -205,7 +205,51 @@
 }
 
 :global(.nova-conversation) {
-  min-height: 1px;
+  width: min(52rem, 100%);
+  margin: 0 auto 2rem;
+}
+
+:global(.conversation-field) {
+  display: grid;
+  gap: 0.9rem;
+}
+
+:global(.conversation-message) {
+  max-width: min(42rem, 92%);
+  padding: 0.9rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--nova-trust-accent) 32%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--nova-surface-organic) 82%, transparent);
+  color: var(--nova-text);
+  user-select: text;
+}
+
+:global(.conversation-message--user) {
+  justify-self: end;
+  border-color: color-mix(in srgb, var(--nova-trust-accent) 48%, transparent);
+}
+
+:global(.conversation-message--nova) {
+  justify-self: start;
+  background: color-mix(in srgb, var(--nova-surface-void) 64%, var(--nova-surface-organic));
+}
+
+:global(.conversation-message) p,
+:global(.conversation-message) pre {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+:global(.conversation-message) pre {
+  overflow-x: auto;
+  padding: 0.8rem;
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--nova-surface-void) 80%, transparent);
+}
+
+:global(.conversation-message) code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 :global(.nova-announcer) {

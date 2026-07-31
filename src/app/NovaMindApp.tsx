@@ -1,4 +1,5 @@
 import { NovaCore } from "../components/NovaCore";
+import { ConversationField } from "../components/ConversationField";
 import { StatusAnnouncer } from "../components/StatusAnnouncer";
 import { TrustHalo } from "../components/TrustHalo";
 import type { TrustTone } from "../domain/presentation-types";
@@ -60,7 +61,9 @@ export function NovaMindApp({ state }: NovaMindAppProps) {
       <section
         className="nova-conversation"
         aria-label="Conversation"
-      />
+      >
+        <ConversationField messages={state.messages} />
+      </section>
 
       <div className="nova-announcer">
         <StatusAnnouncer
