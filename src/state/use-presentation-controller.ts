@@ -46,6 +46,19 @@ function containOperation(operation: () => Promise<void>): Promise<void> {
   }
 }
 
+function permissionOperationSucceeded(
+  operation: () => Promise<void>,
+): Promise<boolean> {
+  try {
+    return Promise.resolve(operation()).then(
+      () => true,
+      () => false,
+    );
+  } catch {
+    return Promise.resolve(false);
+  }
+}
+
 function failureEvent(
   code: "invalid_event" | "host_unavailable",
 ): HostPresentationEvent {
@@ -88,6 +101,19 @@ interface ControllerRuntime {
   aborted: boolean;
   permissionGate: TrustedPermissionGate | null;
   readonly decidedPermissionRequests: Set<string>;
+  sessionReady: Promise<PresentationSession> | null;
+  readonly terminatedSignal: Promise<void>;
+  signalTerminated: () => void;
+  terminationSignaled: boolean;
+}
+
+function signalTermination(runtime: ControllerRuntime): void {
+  if (runtime.terminationSignaled) {
+    return;
+  }
+
+  runtime.terminationSignaled = true;
+  runtime.signalTerminated();
 }
 
 function abortOnce(runtime: ControllerRuntime): void {
@@ -156,6 +182,10 @@ export function usePresentationController(
 
   useEffect(() => {
     const abortController = new AbortController();
+    let signalTerminated = (): void => {};
+    const terminatedSignal = new Promise<void>((resolve) => {
+      signalTerminated = resolve;
+    });
     const runtime: ControllerRuntime = {
       abortController,
       voiceCapture,
@@ -169,6 +199,10 @@ export function usePresentationController(
       aborted: false,
       permissionGate: null,
       decidedPermissionRequests: new Set(),
+      sessionReady: null,
+      terminatedSignal,
+      signalTerminated,
+      terminationSignaled: false,
     };
     runtimeRef.current = runtime;
 
@@ -186,6 +220,8 @@ export function usePresentationController(
       }
 
       runtime.terminated = true;
+      runtime.permissionGate = null;
+      signalTermination(runtime);
       dispatch({ type: "host_event", event: failureEvent(code) });
       cleanupAdapters("close");
     };
@@ -204,8 +240,13 @@ export function usePresentationController(
             return;
           }
 
-          if (validation.event.type === "session_closed") {
+          if (
+            validation.event.type === "session_closed"
+            || validation.event.type === "session_error"
+          ) {
             runtime.terminated = true;
+            runtime.permissionGate = null;
+            signalTermination(runtime);
             dispatch({ type: "host_event", event: validation.event });
             cleanupAdapters("close");
             return;
@@ -219,6 +260,7 @@ export function usePresentationController(
         },
         onFatalError: terminate,
       }, abortController.signal);
+      runtime.sessionReady = connection;
     } catch {
       terminate("host_unavailable");
     }
@@ -248,6 +290,8 @@ export function usePresentationController(
     return () => {
       runtime.active = false;
       runtime.terminated = true;
+      runtime.permissionGate = null;
+      signalTermination(runtime);
       voiceStopGeneration.current += 1;
       voiceStopPending.current = false;
       cleanupAdapters(runtime.cancelRequested ? "cancel" : "close");
@@ -404,10 +448,8 @@ export function usePresentationController(
     }
 
     const gate = runtime.permissionGate;
-    const session = runtime.session;
     if (
       gate === null
-      || session === null
       || gate.approvalRequestId !== approvalRequestId
       || !gate.choices.includes(decision)
       || runtime.decidedPermissionRequests.has(approvalRequestId)
@@ -416,9 +458,104 @@ export function usePresentationController(
     }
 
     runtime.decidedPermissionRequests.add(approvalRequestId);
-    return containOperation(
-      () => session.decidePermission(approvalRequestId, decision),
+    const failClosed = (): void => {
+      if (
+        !runtime.active
+        || runtime.terminated
+        || runtimeRef.current !== runtime
+      ) {
+        return;
+      }
+
+      runtime.permissionGate = null;
+      runtime.terminated = true;
+      signalTermination(runtime);
+      dispatch({
+        type: "host_event",
+        event: failureEvent("host_unavailable"),
+      });
+      abortOnce(runtime);
+      void requestVoiceTeardown(runtime);
+      void requestSessionTeardown(runtime, "close");
+    };
+    const decideWithSession = async (
+      session: PresentationSession,
+    ): Promise<void> => {
+      const currentGate = runtime.permissionGate;
+      if (
+        !runtime.active
+        || runtime.terminated
+        || currentGate === null
+        || currentGate.approvalRequestId !== approvalRequestId
+        || !currentGate.choices.includes(decision)
+      ) {
+        return;
+      }
+
+      const succeeded = await permissionOperationSucceeded(
+        () => session.decidePermission(approvalRequestId, decision),
+      );
+      if (!runtime.active || runtime.terminated) {
+        return;
+      }
+
+      if (!succeeded) {
+        failClosed();
+        return;
+      }
+
+      if (
+        runtime.permissionGate?.approvalRequestId === approvalRequestId
+      ) {
+        runtime.permissionGate = null;
+      }
+      dispatch({
+        type: "permission_decision_resolved",
+        approvalRequestId,
+      });
+    };
+
+    if (runtime.session !== null) {
+      return decideWithSession(runtime.session);
+    }
+
+    const readySession = runtime.sessionReady;
+    if (readySession === null) {
+      failClosed();
+      return Promise.resolve();
+    }
+
+    type ReadinessResult =
+      | {
+          readonly status: "connected";
+          readonly session: PresentationSession;
+        }
+      | { readonly status: "failed" }
+      | { readonly status: "terminated" };
+    const readiness: Promise<ReadinessResult> = readySession.then(
+      (session): ReadinessResult => ({ status: "connected", session }),
+      (): ReadinessResult => ({ status: "failed" }),
     );
+    const termination: Promise<ReadinessResult> = runtime.terminatedSignal.then(
+      (): ReadinessResult => ({ status: "terminated" }),
+    );
+
+    return Promise.race([readiness, termination]).then(async (result) => {
+      if (
+        result.status === "terminated"
+        || !runtime.active
+        || runtime.terminated
+      ) {
+        return;
+      }
+
+      if (result.status === "failed") {
+        failClosed();
+        return;
+      }
+
+      await decideWithSession(result.session);
+    });
   }, []);
 
   const onCancel = useCallback(async (): Promise<void> => {
@@ -429,6 +566,8 @@ export function usePresentationController(
 
     runtime.cancelRequested = true;
     runtime.terminated = true;
+    runtime.permissionGate = null;
+    signalTermination(runtime);
     voiceStopGeneration.current += 1;
     voiceStopPending.current = false;
     const sessionCancellation = requestSessionTeardown(runtime, "cancel");

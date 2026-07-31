@@ -13,6 +13,33 @@ function stateWithOpenContractOrgan() {
   });
 }
 
+const permissionGate = {
+  approvalRequestId: "approval-reducer-1",
+  kind: "permission" as const,
+  actionLabel: "Delete report",
+  canonicalResource: "F:\\reports\\canonical.txt",
+  policyLabels: ["destructive-policy"],
+  reasonLabels: ["explicit-review"],
+  requiredPermission: "delete",
+  actualPermission: "read",
+  irreversible: true,
+  choices: ["deny", "cancel"] as const,
+};
+
+function stateWithPermissionGate() {
+  return presentationReducer(createInitialPresentationState(), {
+    type: "host_event",
+    event: {
+      type: "snapshot",
+      snapshot: makeSnapshot({
+        phase: "approval_required",
+        trustTone: "approval_required",
+        permissionGate,
+      }),
+    },
+  });
+}
+
 describe("presentationReducer", () => {
   it("starts unavailable and fail-closed", () => {
     const state = createInitialPresentationState();
@@ -139,6 +166,64 @@ describe("presentationReducer", () => {
     expect(next.snapshot.isolation).toBe("strong");
     expect(next.sessionState).toBe("failed");
     expect(next.sessionError).toBe("Host connection lost");
+  });
+
+  it("clears only the matching permission gate after decision resolution", () => {
+    const awaitingApproval = stateWithPermissionGate();
+
+    const staleResolution = presentationReducer(awaitingApproval, {
+      type: "permission_decision_resolved",
+      approvalRequestId: "approval-stale",
+    });
+    const matchingResolution = presentationReducer(awaitingApproval, {
+      type: "permission_decision_resolved",
+      approvalRequestId: "approval-reducer-1",
+    });
+
+    expect(staleResolution).toBe(awaitingApproval);
+    expect(matchingResolution.snapshot.phase).toBe("approval_required");
+    expect(matchingResolution.snapshot.trustTone).toBe("approval_required");
+    expect(matchingResolution.snapshot.permissionGate).toBeNull();
+    expect(Object.isFrozen(matchingResolution)).toBe(true);
+    expect(Object.isFrozen(matchingResolution.snapshot)).toBe(true);
+    expect(() => presentationReducer(awaitingApproval, {
+      type: "permission_decision_resolved",
+      approvalRequestId: 17,
+    } as never)).toThrow("unsupported presentation action");
+  });
+
+  it("clears an active permission gate when the session closes", () => {
+    const closed = presentationReducer(stateWithPermissionGate(), {
+      type: "host_event",
+      event: {
+        type: "session_closed",
+        reason: "completed",
+      },
+    });
+
+    expect(closed.sessionState).toBe("closed");
+    expect(closed.snapshot.permissionGate).toBeNull();
+    expect(Object.isFrozen(closed.snapshot)).toBe(true);
+  });
+
+  it("moves an active permission gate to stable unavailable state on error", () => {
+    const failed = presentationReducer(stateWithPermissionGate(), {
+      type: "host_event",
+      event: {
+        type: "session_error",
+        code: "host_unavailable",
+        label: "The presentation host is unavailable.",
+      },
+    });
+
+    expect(failed.sessionState).toBe("failed");
+    expect(failed.sessionError).toBe(
+      "The presentation host is unavailable.",
+    );
+    expect(failed.snapshot.phase).toBe("unavailable");
+    expect(failed.snapshot.trustTone).toBe("fail_closed");
+    expect(failed.snapshot.permissionGate).toBeNull();
+    expect(Object.isFrozen(failed.snapshot)).toBe(true);
   });
 
   it("message replacement changes only the addressed untrusted message", () => {

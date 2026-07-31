@@ -46,7 +46,8 @@ export function NovaMindApp({
   const visibleMessages = snapshot.phase === "processing"
     ? state.messages.filter((message) => message.author === "user")
     : state.messages;
-  const permissionGate = snapshot.phase === "approval_required"
+  const permissionGate = !sessionTerminal
+    && snapshot.phase === "approval_required"
     ? snapshot.permissionGate
     : null;
 

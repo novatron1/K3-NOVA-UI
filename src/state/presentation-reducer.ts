@@ -101,6 +101,14 @@ function freezeSnapshot(snapshot: SanitizedHostSnapshot): SanitizedHostSnapshot 
   });
 }
 
+function withoutPermissionGate(
+  snapshot: SanitizedHostSnapshot,
+): SanitizedHostSnapshot {
+  return snapshot.permissionGate === null
+    ? snapshot
+    : freezeSnapshot({ ...snapshot, permissionGate: null });
+}
+
 function freezeMessage(message: UntrustedMessage): UntrustedMessage {
   return Object.freeze({
     id: message.id,
@@ -248,6 +256,9 @@ function withHostEvent(
       }
       return freezeState({
         ...state,
+        snapshot: state.snapshot.permissionGate === null
+          ? state.snapshot
+          : createUnavailableSnapshot(),
         sessionState: "failed",
         sessionError: event.label,
       });
@@ -261,6 +272,7 @@ function withHostEvent(
       }
       return freezeState({
         ...state,
+        snapshot: withoutPermissionGate(state.snapshot),
         sessionState: "closed",
       });
     default:
@@ -292,6 +304,20 @@ export function presentationReducer(
   switch (action.type) {
     case "host_event":
       return withHostEvent(state, action.event);
+    case "permission_decision_resolved":
+      if (typeof action.approvalRequestId !== "string") {
+        return assertNever(action as never);
+      }
+      if (
+        state.snapshot.permissionGate?.approvalRequestId
+        !== action.approvalRequestId
+      ) {
+        return state;
+      }
+      return freezeState({
+        ...state,
+        snapshot: withoutPermissionGate(state.snapshot),
+      });
     case "draft_changed":
       if (typeof action.value !== "string") {
         return assertNever(action as never);

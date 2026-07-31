@@ -36,16 +36,22 @@ import { UnavailableVoiceCapture } from "../../src/voice/voice-capture";
 function deferred<T>(): {
   readonly promise: Promise<T>;
   readonly resolve: (value: T) => void;
+  readonly reject: (reason: unknown) => void;
 } {
   let resolvePromise: ((value: T) => void) | undefined;
-  const promise = new Promise<T>((resolve) => {
+  let rejectPromise: ((reason: unknown) => void) | undefined;
+  const promise = new Promise<T>((resolve, reject) => {
     resolvePromise = resolve;
+    rejectPromise = reject;
   });
 
   return {
     promise,
     resolve: (value) => {
       resolvePromise?.(value);
+    },
+    reject: (reason) => {
+      rejectPromise?.(reason);
     },
   };
 }
@@ -126,35 +132,6 @@ function ControllerApp({
   const controller = usePresentationController(host, voice);
   onController(controller);
   return <NovaMindApp state={controller} controller={controller} />;
-}
-
-function PermissionLifecycle({
-  gate,
-  onDecision,
-}: {
-  readonly gate: TrustedPermissionGate;
-  readonly onDecision: (
-    approvalRequestId: string,
-    decision: "approve" | "deny" | "cancel",
-  ) => Promise<void>;
-}) {
-  const [activeGate, setActiveGate] = useState<TrustedPermissionGate | null>(
-    gate,
-  );
-
-  if (activeGate === null) {
-    return null;
-  }
-
-  return (
-    <PermissionGate
-      gate={activeGate}
-      onDecision={async (approvalRequestId, decision) => {
-        await onDecision(approvalRequestId, decision);
-        setActiveGate(null);
-      }}
-    />
-  );
 }
 
 afterEach(() => {
@@ -296,6 +273,293 @@ describe("trusted permission gate", () => {
     });
   });
 
+  it("waits for the trusted session before delivering a permission decision", async () => {
+    const sessionConnection = deferred<PresentationSession>();
+    const decisions: Array<readonly [string, string]> = [];
+    const session = sessionWith({
+      decidePermission: async (approvalRequestId, selectedDecision) => {
+        decisions.push([approvalRequestId, selectedDecision]);
+      },
+    });
+    const connection: {
+      handlers: PresentationHostHandlers | null;
+    } = { handlers: null };
+    const host: PresentationHostAdapter = {
+      connect: (handlers) => {
+        connection.handlers = handlers;
+        return sessionConnection.promise;
+      },
+    };
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    const gate = makeGate({
+      approvalRequestId: "approval-before-connect",
+      choices: ["approve", "deny"],
+    });
+
+    render(
+      <ControllerApp
+        host={host}
+        onController={(value) => {
+          controller.current = value;
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(connection.handlers).not.toBeNull();
+      expect(controller.current).not.toBeNull();
+    });
+    act(() => {
+      connection.handlers?.onEvent({
+        type: "snapshot",
+        snapshot: makeSnapshot({
+          phase: "approval_required",
+          trustTone: "approval_required",
+          permissionGate: gate,
+        }),
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    const activeController = controller.current;
+    if (activeController === null) {
+      throw new Error("controller was not rendered");
+    }
+    let settled = false;
+    const pendingDecision = activeController.onPermissionDecision(
+      "approval-before-connect",
+      "approve",
+    ).then(() => {
+      settled = true;
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(settled).toBe(false);
+    expect(decisions).toEqual([]);
+
+    sessionConnection.resolve(session);
+    await act(async () => {
+      await pendingDecision;
+    });
+
+    expect(decisions).toEqual([
+      ["approval-before-connect", "approve"],
+    ]);
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("fails closed when the session connection rejects a waiting decision", async () => {
+    const connectionSentinel = "CONNECTION_PERMISSION_PRIVATE_SENTINEL";
+    const sessionConnection = deferred<PresentationSession>();
+    const connection: {
+      handlers: PresentationHostHandlers | null;
+    } = { handlers: null };
+    const host: PresentationHostAdapter = {
+      connect: (handlers) => {
+        connection.handlers = handlers;
+        return sessionConnection.promise;
+      },
+    };
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+
+    render(
+      <ControllerApp
+        host={host}
+        onController={(value) => {
+          controller.current = value;
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(connection.handlers).not.toBeNull();
+      expect(controller.current).not.toBeNull();
+    });
+    act(() => {
+      connection.handlers?.onEvent({
+        type: "snapshot",
+        snapshot: makeSnapshot({
+          phase: "approval_required",
+          trustTone: "approval_required",
+          permissionGate: makeGate({
+            approvalRequestId: "approval-failed-connect",
+            choices: ["deny"],
+          }),
+        }),
+      });
+    });
+
+    const activeController = controller.current;
+    if (activeController === null) {
+      throw new Error("controller was not rendered");
+    }
+    const pendingDecision = activeController.onPermissionDecision(
+      "approval-failed-connect",
+      "deny",
+    );
+    sessionConnection.reject(new Error(connectionSentinel));
+    await act(async () => {
+      await pendingDecision;
+    });
+
+    await waitFor(() => {
+      expect(controller.current?.sessionState).toBe("failed");
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+    expect(controller.current?.snapshot.phase).toBe("unavailable");
+    expect(controller.current?.snapshot.trustTone).toBe("fail_closed");
+    expect(controller.current?.snapshot.permissionGate).toBeNull();
+    expect(JSON.stringify(controller.current)).not.toContain(
+      connectionSentinel,
+    );
+  });
+
+  it("resolves a decision without a follow-up snapshot and restores focus", async () => {
+    const decision = deferred<void>();
+    const decisions: Array<readonly [string, string]> = [];
+    const session = sessionWith({
+      decidePermission: (approvalRequestId, selectedDecision) => {
+        decisions.push([approvalRequestId, selectedDecision]);
+        return decision.promise;
+      },
+    });
+    const connection: {
+      handlers: PresentationHostHandlers | null;
+    } = { handlers: null };
+    const host: PresentationHostAdapter = {
+      connect: async (handlers) => {
+        connection.handlers = handlers;
+        return session;
+      },
+    };
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    const opener = document.createElement("button");
+    opener.textContent = "Open permission request";
+    document.body.append(opener);
+    opener.focus();
+    const { container } = render(
+      <ControllerApp
+        host={host}
+        onController={(value) => {
+          controller.current = value;
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(connection.handlers).not.toBeNull();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      connection.handlers?.onEvent({
+        type: "snapshot",
+        snapshot: makeSnapshot({
+          phase: "approval_required",
+          trustTone: "approval_required",
+          permissionGate: makeGate({
+            approvalRequestId: "approval-no-follow-up",
+            choices: ["deny"],
+          }),
+        }),
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Deny" })).toHaveFocus();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+    expect(decisions).toEqual([["approval-no-follow-up", "deny"]]);
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+
+    decision.resolve(undefined);
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(opener).toHaveFocus();
+    });
+    expect(controller.current?.snapshot.permissionGate).toBeNull();
+    expect(container.querySelector(".nova-presentation"))
+      .not.toHaveAttribute("inert");
+    opener.remove();
+  });
+
+  it("terminal host events remove an active gate and restore focus", async () => {
+    const session = sessionWith();
+    const connection: {
+      handlers: PresentationHostHandlers | null;
+    } = { handlers: null };
+    const host: PresentationHostAdapter = {
+      connect: async (handlers) => {
+        connection.handlers = handlers;
+        return session;
+      },
+    };
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    const opener = document.createElement("button");
+    opener.textContent = "Open terminal permission request";
+    document.body.append(opener);
+    opener.focus();
+    const { container } = render(
+      <ControllerApp
+        host={host}
+        onController={(value) => {
+          controller.current = value;
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(connection.handlers).not.toBeNull();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      connection.handlers?.onEvent({
+        type: "snapshot",
+        snapshot: makeSnapshot({
+          phase: "approval_required",
+          trustTone: "approval_required",
+          permissionGate: makeGate({
+            approvalRequestId: "approval-terminal",
+            choices: ["cancel"],
+          }),
+        }),
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    act(() => {
+      connection.handlers?.onEvent({
+        type: "session_closed",
+        reason: "completed",
+      });
+    });
+
+    await waitFor(() => {
+      expect(controller.current?.sessionState).toBe("closed");
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(opener).toHaveFocus();
+    });
+    expect(controller.current?.snapshot.permissionGate).toBeNull();
+    expect(container.querySelector(".nova-presentation"))
+      .not.toHaveAttribute("inert");
+    opener.remove();
+  });
+
   it("offers only host-provided permitted choices", () => {
     render(
       <PermissionGate
@@ -321,7 +585,7 @@ describe("trusted permission gate", () => {
     const received: Array<readonly [string, string]> = [];
     const user = userEvent.setup();
     const { unmount } = render(
-      <PermissionLifecycle
+      <PermissionGate
         gate={makeGate({ choices: ["deny", "cancel"] })}
         onDecision={(approvalRequestId, selectedDecision) => {
           received.push([approvalRequestId, selectedDecision]);
@@ -349,12 +613,13 @@ describe("trusted permission gate", () => {
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
 
     decision.resolve(undefined);
-    await waitFor(() => {
-      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await act(async () => {
+      await decision.promise;
     });
-    expect(opener).toHaveFocus();
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
 
     unmount();
+    expect(opener).toHaveFocus();
     opener.focus();
     const denyOnlyDecision = vi.fn(async () => {});
     render(
@@ -455,20 +720,27 @@ describe("trusted permission gate", () => {
       .not.toBeInTheDocument();
   });
 
-  it("contains synchronous and rejected host decision failures", async () => {
-    const syncSentinel = "SYNC_PERMISSION_PRIVATE_SENTINEL";
-    const rejectionSentinel = "REJECTED_PERMISSION_PRIVATE_SENTINEL";
+  it.each([
+    ["synchronous throw", "SYNC_PERMISSION_PRIVATE_SENTINEL"],
+    ["rejected promise", "REJECTED_PERMISSION_PRIVATE_SENTINEL"],
+  ] as const)("fails closed after a host decision %s", async (
+    failureMode,
+    sentinel,
+  ) => {
     const unhandledRejections: unknown[] = [];
     const observeUnhandled = (reason: unknown): void => {
       unhandledRejections.push(reason);
     };
-    const session = sessionWith({
-      decidePermission: (approvalRequestId) => {
-        if (approvalRequestId === "approval-sync") {
-          throw new Error(syncSentinel);
+    const decidePermission = vi.fn<PresentationSession["decidePermission"]>(
+      () => {
+        if (failureMode === "synchronous throw") {
+          throw new Error(sentinel);
         }
-        return Promise.reject(new Error(rejectionSentinel));
+        return Promise.reject(new Error(sentinel));
       },
+    );
+    const session = sessionWith({
+      decidePermission,
     });
     const connection: {
       handlers: PresentationHostHandlers | null;
@@ -482,10 +754,14 @@ describe("trusted permission gate", () => {
     const controller: { current: PresentationController | null } = {
       current: null,
     };
+    const opener = document.createElement("button");
+    opener.textContent = `Open ${failureMode} permission request`;
+    document.body.append(opener);
+    opener.focus();
 
     process.on("unhandledRejection", observeUnhandled);
     try {
-      render(
+      const { container } = render(
         <ControllerApp
           host={host}
           onController={(value) => {
@@ -508,43 +784,45 @@ describe("trusted permission gate", () => {
             phase: "approval_required",
             trustTone: "approval_required",
             permissionGate: makeGate({
-              approvalRequestId: "approval-sync",
+              approvalRequestId: "approval-failure",
               choices: ["deny"],
             }),
           }),
         });
       });
-      await controller.current?.onPermissionDecision("approval-sync", "deny");
-
-      act(() => {
-        connection.handlers?.onEvent({
-          type: "snapshot",
-          snapshot: makeSnapshot({
-            phase: "approval_required",
-            trustTone: "approval_required",
-            permissionGate: makeGate({
-              approvalRequestId: "approval-rejected",
-              choices: ["cancel"],
-            }),
-          }),
-        });
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Deny" })).toHaveFocus();
       });
-      await controller.current?.onPermissionDecision(
-        "approval-rejected",
-        "cancel",
-      );
+      fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+
+      await waitFor(() => {
+        expect(controller.current?.sessionState).toBe("failed");
+        expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+        expect(opener).toHaveFocus();
+      });
       await act(async () => {
         await Promise.resolve();
       });
 
-      expect(unhandledRejections).toEqual([]);
-      expect(controller.current?.sessionError).toBeNull();
-      expect(JSON.stringify(controller.current)).not.toContain(syncSentinel);
-      expect(JSON.stringify(controller.current)).not.toContain(
-        rejectionSentinel,
+      expect(decidePermission).toHaveBeenCalledTimes(1);
+      expect(decidePermission).toHaveBeenCalledWith(
+        "approval-failure",
+        "deny",
       );
+      expect(unhandledRejections).toEqual([]);
+      expect(controller.current?.sessionState).toBe("failed");
+      expect(controller.current?.sessionError).toBe(
+        "The presentation host is unavailable.",
+      );
+      expect(controller.current?.snapshot.phase).toBe("unavailable");
+      expect(controller.current?.snapshot.trustTone).toBe("fail_closed");
+      expect(controller.current?.snapshot.permissionGate).toBeNull();
+      expect(container.querySelector(".nova-presentation"))
+        .not.toHaveAttribute("inert");
+      expect(JSON.stringify(controller.current)).not.toContain(sentinel);
     } finally {
       process.off("unhandledRejection", observeUnhandled);
+      opener.remove();
     }
   });
 });

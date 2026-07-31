@@ -32,6 +32,10 @@ export type HostPresentationEvent =
 
 export type PresentationAction =
   | { readonly type: "host_event"; readonly event: HostPresentationEvent }
+  | {
+      readonly type: "permission_decision_resolved";
+      readonly approvalRequestId: string;
+    }
   | { readonly type: "draft_changed"; readonly value: string }
   | {
       readonly type: "draft_submission_resolved";
