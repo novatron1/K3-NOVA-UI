@@ -242,7 +242,10 @@ export function usePresentationController(
 
           if (
             validation.event.type === "session_closed"
-            || validation.event.type === "session_error"
+            || (
+              validation.event.type === "session_error"
+              && runtime.permissionGate !== null
+            )
           ) {
             runtime.terminated = true;
             runtime.permissionGate = null;

@@ -560,6 +560,94 @@ describe("trusted permission gate", () => {
     opener.remove();
   });
 
+  it("gate-bearing session errors fail closed and discard later host events", async () => {
+    const close = vi.fn<PresentationSession["close"]>().mockResolvedValue();
+    const session = sessionWith({ close });
+    const connection: {
+      handlers: PresentationHostHandlers | null;
+      signal: AbortSignal | null;
+    } = {
+      handlers: null,
+      signal: null,
+    };
+    const host: PresentationHostAdapter = {
+      connect: async (handlers, signal) => {
+        connection.handlers = handlers;
+        connection.signal = signal;
+        return session;
+      },
+    };
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    const opener = document.createElement("button");
+    opener.textContent = "Open erroring permission request";
+    document.body.append(opener);
+    opener.focus();
+    const { container } = render(
+      <ControllerApp
+        host={host}
+        onController={(value) => {
+          controller.current = value;
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(connection.handlers).not.toBeNull();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      connection.handlers?.onEvent({
+        type: "snapshot",
+        snapshot: makeSnapshot({
+          phase: "approval_required",
+          trustTone: "approval_required",
+          permissionGate: makeGate({
+            approvalRequestId: "approval-session-error",
+            choices: ["deny"],
+          }),
+        }),
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    act(() => {
+      connection.handlers?.onEvent({
+        type: "session_error",
+        code: "host_unavailable",
+        label: "The presentation host is unavailable.",
+      });
+      connection.handlers?.onEvent({
+        type: "snapshot",
+        snapshot: makeSnapshot({
+          phase: "responding",
+          statusLabel: "Must be ignored after gated session error",
+        }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(controller.current?.sessionState).toBe("failed");
+      expect(controller.current?.snapshot.phase).toBe("unavailable");
+      expect(controller.current?.snapshot.trustTone).toBe("fail_closed");
+      expect(controller.current?.snapshot.permissionGate).toBeNull();
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(opener).toHaveFocus();
+      expect(close).toHaveBeenCalledTimes(1);
+    });
+    expect(controller.current?.sessionError).toBe(
+      "The presentation host is unavailable.",
+    );
+    expect(container.querySelector(".nova-presentation"))
+      .not.toHaveAttribute("inert");
+    expect(connection.signal?.aborted).toBe(true);
+    opener.remove();
+  });
+
   it("offers only host-provided permitted choices", () => {
     render(
       <PermissionGate

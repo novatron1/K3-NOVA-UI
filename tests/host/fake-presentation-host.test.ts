@@ -583,6 +583,95 @@ describe("FakePresentationHost", () => {
     expect((connectedSignal as AbortSignal | null)?.aborted).toBe(true);
   });
 
+  it("keeps non-gate session errors recoverable without terminal teardown", async () => {
+    const close = vi.fn<PresentationSession["close"]>().mockResolvedValue();
+    const session: PresentationSession = {
+      submitText: async () => {},
+      submitVoiceTranscript: async () => {},
+      decidePermission: async () => {},
+      cancel: async () => {},
+      close,
+    };
+    const connectionState: {
+      handlers: PresentationHostHandlers | null;
+      signal: AbortSignal | null;
+    } = {
+      handlers: null,
+      signal: null,
+    };
+    const connect = vi.fn<PresentationHostAdapter["connect"]>(
+      (hostHandlers, signal) => {
+        connectionState.handlers = hostHandlers;
+        connectionState.signal = signal;
+        return Promise.resolve(session);
+      },
+    );
+    const host: PresentationHostAdapter = { connect };
+    const voiceCancel = vi.fn<VoiceCaptureAdapter["cancel"]>().mockResolvedValue();
+    const voice: VoiceCaptureAdapter = {
+      available: true,
+      start: async () => {},
+      stopForReview: async () => "review",
+      cancel: voiceCancel,
+    };
+    const view = renderHook(() => usePresentationController(host, voice));
+
+    await waitFor(() => {
+      expect(connectionState.handlers).not.toBeNull();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const hostHandlers = connectionState.handlers;
+    if (hostHandlers === null) {
+      throw new Error("adapter handlers were not connected");
+    }
+
+    act(() => {
+      hostHandlers.onEvent({
+        type: "snapshot",
+        snapshot: makeSnapshot({
+          phase: "idle",
+          statusLabel: "Stable before recoverable error",
+        }),
+      });
+      hostHandlers.onEvent({
+        type: "session_error",
+        code: "timeout",
+        label: "Temporary presentation delay.",
+      });
+      hostHandlers.onEvent({
+        type: "snapshot",
+        snapshot: makeSnapshot({
+          phase: "responding",
+          statusLabel: "Recovered after session error",
+        }),
+      });
+      hostHandlers.onEvent(
+        messageEvent("recovered-message", "accepted after recoverable error"),
+      );
+    });
+
+    await waitFor(() => {
+      expect(view.result.current.sessionState).toBe("connected");
+      expect(view.result.current.snapshot.phase).toBe("responding");
+      expect(view.result.current.snapshot.statusLabel).toBe(
+        "Recovered after session error",
+      );
+      expect(view.result.current.messages).toHaveLength(1);
+    });
+    expect(view.result.current.sessionError).toBeNull();
+    expect(close).not.toHaveBeenCalled();
+    expect(voiceCancel).not.toHaveBeenCalled();
+    expect(connectionState.signal?.aborted).toBe(false);
+
+    view.unmount();
+    await waitFor(() => {
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(voiceCancel).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("latches session closure before ignoring later adapter callbacks", async () => {
     const cleanupSentinel = "CLOSED_SESSION_CLEANUP_PRIVATE_SENTINEL";
     const close = vi.fn<PresentationSession["close"]>().mockRejectedValue(
