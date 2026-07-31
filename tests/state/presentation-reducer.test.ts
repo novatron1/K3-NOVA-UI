@@ -331,35 +331,22 @@ describe("presentationReducer", () => {
     expect([...openOrgans]).toEqual(["contract"]);
   });
 
-  it("clears only the draft that completed submission", () => {
-    const newerDraft = presentationReducer(createInitialPresentationState(), {
-      type: "draft_changed",
-      value: "newer draft",
-    });
-
-    const next = presentationReducer(newerDraft, {
-      type: "draft_submission_resolved",
-      submittedValue: "older draft",
-    } as never);
-
-    expect(next.draft).toBe("newer draft");
-  });
-
-  it("clears only the voice transcript that completed submission", () => {
-    const newerTranscript = presentationReducer(
-      createInitialPresentationState(),
+  it("rejects obsolete value-equality submission completion actions", () => {
+    for (const action of [
       {
-        type: "voice_review_changed",
-        value: "newer transcript",
+        type: "draft_submission_resolved",
+        submittedValue: "same-value draft",
       },
-    );
-
-    const next = presentationReducer(newerTranscript, {
-      type: "voice_review_submission_resolved",
-      submittedValue: "older transcript",
-    } as never);
-
-    expect(next.voiceReview).toBe("newer transcript");
+      {
+        type: "voice_review_submission_resolved",
+        submittedValue: "same-value transcript",
+      },
+    ]) {
+      expect(() => presentationReducer(
+        createInitialPresentationState(),
+        action as never,
+      )).toThrow("unsupported presentation action");
+    }
   });
 
   it("passes the public immutable facade to forEach callbacks", () => {

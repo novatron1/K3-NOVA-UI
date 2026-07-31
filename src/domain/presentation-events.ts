@@ -37,15 +37,7 @@ export type PresentationAction =
       readonly approvalRequestId: string;
     }
   | { readonly type: "draft_changed"; readonly value: string }
-  | {
-      readonly type: "draft_submission_resolved";
-      readonly submittedValue: string;
-    }
   | { readonly type: "voice_review_changed"; readonly value: string | null }
-  | {
-      readonly type: "voice_review_submission_resolved";
-      readonly submittedValue: string;
-    }
   | { readonly type: "organ_toggled"; readonly organId: LivingOrganId }
   | {
       readonly type: "preference_changed";

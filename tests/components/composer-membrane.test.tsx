@@ -724,4 +724,248 @@ describe("ComposerMembrane", () => {
       process.off("unhandledRejection", observeUnhandled);
     }
   });
+
+  it.each([
+    {
+      kind: "text",
+      failureMode: "synchronous throw",
+      sentinel: "SYNC_TEXT_SUBMIT_PRIVATE_SENTINEL_4C31",
+    },
+    {
+      kind: "text",
+      failureMode: "rejected promise",
+      sentinel: "REJECTED_TEXT_SUBMIT_PRIVATE_SENTINEL_A817",
+    },
+    {
+      kind: "voice",
+      failureMode: "synchronous throw",
+      sentinel: "SYNC_VOICE_SUBMIT_PRIVATE_SENTINEL_96D2",
+    },
+    {
+      kind: "voice",
+      failureMode: "rejected promise",
+      sentinel: "REJECTED_VOICE_SUBMIT_PRIVATE_SENTINEL_7BE5",
+    },
+  ] as const)(
+    "contains $failureMode from $kind submission",
+    async ({ kind, failureMode, sentinel }) => {
+      const privateInput = kind === "text"
+        ? "private draft survives submission failure"
+        : "private transcript survives submission failure";
+      const unhandledRejections: unknown[] = [];
+      const observeUnhandled = (reason: unknown): void => {
+        unhandledRejections.push(reason);
+      };
+      const submittedInputs: string[] = [];
+      const failingSubmission = (value: string): Promise<void> => {
+        submittedInputs.push(value);
+        if (failureMode === "synchronous throw") {
+          throw new Error(sentinel);
+        }
+        return Promise.reject(new Error(sentinel));
+      };
+      const session = sessionWith({
+        ...(kind === "text"
+          ? { submitText: failingSubmission }
+          : { submitVoiceTranscript: failingSubmission }),
+      });
+      const host: PresentationHostAdapter = { connect: async () => session };
+      const voice: VoiceCaptureAdapter = kind === "voice"
+        ? {
+            available: true,
+            start: async () => {},
+            stopForReview: async () => privateInput,
+            cancel: async () => {},
+          }
+        : new UnavailableVoiceCapture();
+      const controller: { current: PresentationController | null } = {
+        current: null,
+      };
+
+      process.on("unhandledRejection", observeUnhandled);
+      try {
+        render(
+          <ControllerApp
+            host={host}
+            voice={voice}
+            onController={(value) => {
+              controller.current = value;
+            }}
+          />,
+        );
+        await waitFor(() => {
+          expect(controller.current).not.toBeNull();
+        });
+        await act(async () => {
+          await Promise.resolve();
+        });
+
+        if (kind === "text") {
+          act(() => {
+            controller.current?.onDraftChange(privateInput);
+          });
+        } else {
+          controller.current?.onVoiceStop();
+          await waitFor(() => {
+            expect(screen.getByText(privateInput)).toBeVisible();
+          });
+        }
+
+        const submit = screen.getByRole("button", {
+          name: kind === "text"
+            ? "Send message"
+            : "Confirm voice transcript",
+        });
+        fireEvent.click(submit);
+        await waitFor(() => {
+          expect(submittedInputs).toEqual([privateInput]);
+          expect(submit).toBeEnabled();
+        });
+
+        fireEvent.click(submit);
+        await waitFor(() => {
+          expect(submittedInputs).toEqual([privateInput, privateInput]);
+          expect(submit).toBeEnabled();
+        });
+        await act(async () => {
+          await Promise.resolve();
+        });
+
+        expect(unhandledRejections).toEqual([]);
+        expect(controller.current?.sessionError).toBeNull();
+        if (kind === "text") {
+          expect(screen.getByRole("textbox", { name: "Message" }))
+            .toHaveValue(privateInput);
+        } else {
+          expect(screen.getByText(privateInput)).toBeVisible();
+        }
+        expect(JSON.stringify(controller.current)).not.toContain(sentinel);
+      } finally {
+        process.off("unhandledRejection", observeUnhandled);
+      }
+    },
+  );
+
+  it("preserves a newer same-value draft revision after old submission", async () => {
+    const submission = deferred<void>();
+    const submittedInputs: string[] = [];
+    const session = sessionWith({
+      submitText: (value) => {
+        submittedInputs.push(value);
+        return submission.promise;
+      },
+    });
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    render(
+      <ControllerApp
+        host={{ connect: async () => session }}
+        voice={new UnavailableVoiceCapture()}
+        onController={(value) => {
+          controller.current = value;
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(controller.current).not.toBeNull();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      controller.current?.onDraftChange("same-value draft");
+    });
+    const oldSubmission = controller.current?.onSubmitText();
+    expect(submittedInputs).toEqual(["same-value draft"]);
+
+    act(() => {
+      controller.current?.onDraftChange("intermediate draft");
+      controller.current?.onDraftChange("same-value draft");
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Message" }))
+        .toHaveValue("same-value draft");
+    });
+    await act(async () => {
+      submission.resolve(undefined);
+      await oldSubmission;
+    });
+
+    expect(screen.getByRole("textbox", { name: "Message" }))
+      .toHaveValue("same-value draft");
+  });
+
+  it("preserves a newer same-value voice revision after old submission", async () => {
+    const submission = deferred<void>();
+    const transcripts = [
+      "same-value transcript",
+      "intermediate transcript",
+      "same-value transcript",
+    ];
+    let transcriptIndex = 0;
+    const voice: VoiceCaptureAdapter = {
+      available: true,
+      start: async () => {},
+      stopForReview: async () => (
+        transcripts[transcriptIndex++] ?? "unexpected transcript"
+      ),
+      cancel: async () => {},
+    };
+    const submittedInputs: string[] = [];
+    const session = sessionWith({
+      submitVoiceTranscript: (value) => {
+        submittedInputs.push(value);
+        return submission.promise;
+      },
+    });
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    render(
+      <ControllerApp
+        host={{ connect: async () => session }}
+        voice={voice}
+        onController={(value) => {
+          controller.current = value;
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(controller.current).not.toBeNull();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    controller.current?.onVoiceStop();
+    await waitFor(() => {
+      expect(screen.getByText("same-value transcript")).toBeVisible();
+    });
+    const oldSubmission = controller.current?.onSubmitVoiceReview();
+    expect(submittedInputs).toEqual(["same-value transcript"]);
+
+    act(() => {
+      controller.current?.onDiscardVoiceReview();
+    });
+    controller.current?.onVoiceStop();
+    await waitFor(() => {
+      expect(screen.getByText("intermediate transcript")).toBeVisible();
+    });
+    act(() => {
+      controller.current?.onDiscardVoiceReview();
+    });
+    controller.current?.onVoiceStop();
+    await waitFor(() => {
+      expect(screen.getByText("same-value transcript")).toBeVisible();
+    });
+
+    await act(async () => {
+      submission.resolve(undefined);
+      await oldSubmission;
+    });
+
+    expect(screen.getByText("same-value transcript")).toBeVisible();
+  });
 });

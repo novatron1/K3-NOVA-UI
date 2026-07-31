@@ -47,7 +47,7 @@ function containOperation(operation: () => Promise<void>): Promise<void> {
   }
 }
 
-function permissionOperationSucceeded(
+function operationSucceeded(
   operation: () => Promise<void>,
 ): Promise<boolean> {
   try {
@@ -174,7 +174,9 @@ export function usePresentationController(
     createInitialPresentationState,
   );
   const draftRef = useRef(state.draft);
+  const draftRevision = useRef(0);
   const voiceReviewRef = useRef(state.voiceReview);
+  const voiceReviewRevision = useRef(0);
   const runtimeRef = useRef<ControllerRuntime | null>(null);
   const textSubmissionPending = useRef(false);
   const voiceSubmissionPending = useRef(false);
@@ -309,12 +311,14 @@ export function usePresentationController(
 
   const onDraftChange = useCallback((value: string): void => {
     draftRef.current = value;
+    draftRevision.current += 1;
     dispatch({ type: "draft_changed", value });
   }, []);
 
   const onSubmitText = useCallback(async (): Promise<void> => {
     const runtime = runtimeRef.current;
     const draft = draftRef.current;
+    const submittedRevision = draftRevision.current;
     if (
       runtime === null
       || !runtime.active
@@ -328,15 +332,18 @@ export function usePresentationController(
 
     textSubmissionPending.current = true;
     try {
-      await runtime.session.submitText(draft);
-      if (runtime.active && !runtime.terminated) {
-        if (draftRef.current === draft) {
-          draftRef.current = "";
-        }
-        dispatch({
-          type: "draft_submission_resolved",
-          submittedValue: draft,
-        });
+      const succeeded = await operationSucceeded(
+        () => runtime.session?.submitText(draft) ?? Promise.resolve(),
+      );
+      if (
+        succeeded
+        && runtime.active
+        && !runtime.terminated
+        && draftRevision.current === submittedRevision
+      ) {
+        draftRef.current = "";
+        draftRevision.current += 1;
+        dispatch({ type: "draft_changed", value: "" });
       }
     } finally {
       textSubmissionPending.current = false;
@@ -346,6 +353,7 @@ export function usePresentationController(
   const onSubmitVoiceReview = useCallback(async (): Promise<void> => {
     const runtime = runtimeRef.current;
     const voiceReview = voiceReviewRef.current;
+    const submittedRevision = voiceReviewRevision.current;
     if (
       runtime === null
       || !runtime.active
@@ -359,15 +367,21 @@ export function usePresentationController(
 
     voiceSubmissionPending.current = true;
     try {
-      await runtime.session.submitVoiceTranscript(voiceReview);
-      if (runtime.active && !runtime.terminated) {
-        if (voiceReviewRef.current === voiceReview) {
-          voiceReviewRef.current = null;
-        }
-        dispatch({
-          type: "voice_review_submission_resolved",
-          submittedValue: voiceReview,
-        });
+      const succeeded = await operationSucceeded(
+        () => (
+          runtime.session?.submitVoiceTranscript(voiceReview)
+          ?? Promise.resolve()
+        ),
+      );
+      if (
+        succeeded
+        && runtime.active
+        && !runtime.terminated
+        && voiceReviewRevision.current === submittedRevision
+      ) {
+        voiceReviewRef.current = null;
+        voiceReviewRevision.current += 1;
+        dispatch({ type: "voice_review_changed", value: null });
       }
     } finally {
       voiceSubmissionPending.current = false;
@@ -376,6 +390,7 @@ export function usePresentationController(
 
   const onDiscardVoiceReview = useCallback((): void => {
     voiceReviewRef.current = null;
+    voiceReviewRevision.current += 1;
     dispatch({ type: "voice_review_changed", value: null });
   }, []);
 
@@ -429,6 +444,7 @@ export function usePresentationController(
           && voiceReviewRef.current === null
         ) {
           voiceReviewRef.current = transcript;
+          voiceReviewRevision.current += 1;
           dispatch({ type: "voice_review_changed", value: transcript });
         }
       },
@@ -498,7 +514,7 @@ export function usePresentationController(
         return;
       }
 
-      const succeeded = await permissionOperationSucceeded(
+      const succeeded = await operationSucceeded(
         () => session.decidePermission(approvalRequestId, decision),
       );
       if (!runtime.active || runtime.terminated) {

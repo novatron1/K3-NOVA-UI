@@ -324,25 +324,11 @@ export function presentationReducer(
         return assertNever(action as never);
       }
       return freezeState({ ...state, draft: action.value });
-    case "draft_submission_resolved":
-      if (typeof action.submittedValue !== "string") {
-        return assertNever(action as never);
-      }
-      return state.draft === action.submittedValue
-        ? freezeState({ ...state, draft: "" })
-        : state;
     case "voice_review_changed":
       if (action.value !== null && typeof action.value !== "string") {
         return assertNever(action as never);
       }
       return freezeState({ ...state, voiceReview: action.value });
-    case "voice_review_submission_resolved":
-      if (typeof action.submittedValue !== "string") {
-        return assertNever(action as never);
-      }
-      return state.voiceReview === action.submittedValue
-        ? freezeState({ ...state, voiceReview: null })
-        : state;
     case "organ_toggled":
       if (!isLivingOrganId(action.organId)) {
         return assertNever(action as never);
