@@ -32,6 +32,17 @@ function ignoreFailure(operation: () => Promise<void>): void {
   }
 }
 
+function containOperation(operation: () => Promise<void>): Promise<void> {
+  try {
+    return Promise.resolve(operation()).then(
+      () => undefined,
+      () => undefined,
+    );
+  } catch {
+    return Promise.resolve();
+  }
+}
+
 function failureEvent(
   code: "invalid_event" | "host_unavailable",
 ): HostPresentationEvent {
@@ -59,9 +70,62 @@ export type PresentationController =
 
 interface ControllerRuntime {
   readonly abortController: AbortController;
+  readonly voiceCapture: VoiceCaptureAdapter;
   active: boolean;
   terminated: boolean;
+  cancelRequested: boolean;
   session: PresentationSession | null;
+  sessionTeardownIntent: "cancel" | "close" | null;
+  sessionTeardown: Promise<void> | null;
+  voiceTeardown: Promise<void> | null;
+  aborted: boolean;
+}
+
+function abortOnce(runtime: ControllerRuntime): void {
+  if (runtime.aborted) {
+    return;
+  }
+
+  runtime.aborted = true;
+  runtime.abortController.abort();
+}
+
+function requestSessionTeardown(
+  runtime: ControllerRuntime,
+  intent: "cancel" | "close",
+): Promise<void> {
+  if (
+    runtime.sessionTeardownIntent === null
+    || (intent === "cancel" && runtime.sessionTeardown === null)
+  ) {
+    runtime.sessionTeardownIntent = intent;
+  }
+
+  if (runtime.session === null) {
+    return Promise.resolve();
+  }
+
+  if (runtime.sessionTeardown === null) {
+    const connectedSession = runtime.session;
+    const teardownIntent = runtime.sessionTeardownIntent ?? intent;
+    runtime.sessionTeardown = containOperation(() => (
+      teardownIntent === "cancel"
+        ? connectedSession.cancel()
+        : connectedSession.close()
+    ));
+  }
+
+  return runtime.sessionTeardown;
+}
+
+function requestVoiceTeardown(runtime: ControllerRuntime): Promise<void> {
+  if (runtime.voiceTeardown === null) {
+    runtime.voiceTeardown = containOperation(
+      () => runtime.voiceCapture.cancel(),
+    );
+  }
+
+  return runtime.voiceTeardown;
 }
 
 export function usePresentationController(
@@ -73,32 +137,34 @@ export function usePresentationController(
     undefined,
     createInitialPresentationState,
   );
-  const stateRef = useRef(state);
+  const draftRef = useRef(state.draft);
+  const voiceReviewRef = useRef(state.voiceReview);
   const runtimeRef = useRef<ControllerRuntime | null>(null);
   const textSubmissionPending = useRef(false);
   const voiceSubmissionPending = useRef(false);
-
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
+  const voiceStopPending = useRef(false);
+  const voiceStopGeneration = useRef(0);
 
   useEffect(() => {
     const abortController = new AbortController();
     const runtime: ControllerRuntime = {
       abortController,
+      voiceCapture,
       active: true,
       terminated: false,
+      cancelRequested: false,
       session: null,
+      sessionTeardownIntent: null,
+      sessionTeardown: null,
+      voiceTeardown: null,
+      aborted: false,
     };
     runtimeRef.current = runtime;
 
-    const cleanupAdapters = (): void => {
-      abortController.abort();
-      ignoreFailure(() => voiceCapture.cancel());
-      if (runtime.session !== null) {
-        const connectedSession = runtime.session;
-        ignoreFailure(() => connectedSession.close());
-      }
+    const cleanupAdapters = (intent: "cancel" | "close"): void => {
+      abortOnce(runtime);
+      void requestVoiceTeardown(runtime);
+      void requestSessionTeardown(runtime, intent);
     };
 
     const terminate = (
@@ -110,7 +176,7 @@ export function usePresentationController(
 
       runtime.terminated = true;
       dispatch({ type: "host_event", event: failureEvent(code) });
-      cleanupAdapters();
+      cleanupAdapters("close");
     };
 
     let connection: Promise<PresentationSession> | null = null;
@@ -130,7 +196,7 @@ export function usePresentationController(
           if (validation.event.type === "session_closed") {
             runtime.terminated = true;
             dispatch({ type: "host_event", event: validation.event });
-            cleanupAdapters();
+            cleanupAdapters("close");
             return;
           }
 
@@ -145,11 +211,18 @@ export function usePresentationController(
     if (connection !== null) {
       void connection.then(
         (connectedSession) => {
-          if (!runtime.active || runtime.terminated) {
-            ignoreFailure(() => connectedSession.close());
+          runtime.session = connectedSession;
+          if (
+            !runtime.active
+            || runtime.terminated
+            || runtime.sessionTeardownIntent !== null
+          ) {
+            void requestSessionTeardown(
+              runtime,
+              runtime.cancelRequested ? "cancel" : "close",
+            );
             return;
           }
-          runtime.session = connectedSession;
         },
         () => {
           terminate("host_unavailable");
@@ -160,7 +233,9 @@ export function usePresentationController(
     return () => {
       runtime.active = false;
       runtime.terminated = true;
-      cleanupAdapters();
+      voiceStopGeneration.current += 1;
+      voiceStopPending.current = false;
+      cleanupAdapters(runtime.cancelRequested ? "cancel" : "close");
       if (runtimeRef.current === runtime) {
         runtimeRef.current = null;
       }
@@ -168,12 +243,13 @@ export function usePresentationController(
   }, [host, voiceCapture]);
 
   const onDraftChange = useCallback((value: string): void => {
+    draftRef.current = value;
     dispatch({ type: "draft_changed", value });
   }, []);
 
   const onSubmitText = useCallback(async (): Promise<void> => {
     const runtime = runtimeRef.current;
-    const draft = stateRef.current.draft;
+    const draft = draftRef.current;
     if (
       runtime === null
       || !runtime.active
@@ -188,12 +264,14 @@ export function usePresentationController(
     textSubmissionPending.current = true;
     try {
       await runtime.session.submitText(draft);
-      if (
-        runtime.active
-        && !runtime.terminated
-        && stateRef.current.draft === draft
-      ) {
-        dispatch({ type: "draft_changed", value: "" });
+      if (runtime.active && !runtime.terminated) {
+        if (draftRef.current === draft) {
+          draftRef.current = "";
+        }
+        dispatch({
+          type: "draft_submission_resolved",
+          submittedValue: draft,
+        });
       }
     } finally {
       textSubmissionPending.current = false;
@@ -202,7 +280,7 @@ export function usePresentationController(
 
   const onSubmitVoiceReview = useCallback(async (): Promise<void> => {
     const runtime = runtimeRef.current;
-    const voiceReview = stateRef.current.voiceReview;
+    const voiceReview = voiceReviewRef.current;
     if (
       runtime === null
       || !runtime.active
@@ -217,12 +295,14 @@ export function usePresentationController(
     voiceSubmissionPending.current = true;
     try {
       await runtime.session.submitVoiceTranscript(voiceReview);
-      if (
-        runtime.active
-        && !runtime.terminated
-        && stateRef.current.voiceReview === voiceReview
-      ) {
-        dispatch({ type: "voice_review_changed", value: null });
+      if (runtime.active && !runtime.terminated) {
+        if (voiceReviewRef.current === voiceReview) {
+          voiceReviewRef.current = null;
+        }
+        dispatch({
+          type: "voice_review_submission_resolved",
+          submittedValue: voiceReview,
+        });
       }
     } finally {
       voiceSubmissionPending.current = false;
@@ -230,6 +310,7 @@ export function usePresentationController(
   }, []);
 
   const onDiscardVoiceReview = useCallback((): void => {
+    voiceReviewRef.current = null;
     dispatch({ type: "voice_review_changed", value: null });
   }, []);
 
@@ -240,10 +321,13 @@ export function usePresentationController(
       || runtime === null
       || !runtime.active
       || runtime.terminated
+      || voiceStopPending.current
+      || voiceReviewRef.current !== null
     ) {
       return;
     }
 
+    voiceStopGeneration.current += 1;
     ignoreFailure(() => voiceCapture.start(runtime.abortController.signal));
   }, [voiceCapture]);
 
@@ -254,18 +338,41 @@ export function usePresentationController(
       || runtime === null
       || !runtime.active
       || runtime.terminated
+      || voiceStopPending.current
+      || voiceReviewRef.current !== null
     ) {
       return;
     }
 
-    void voiceCapture.stopForReview().then(
+    voiceStopPending.current = true;
+    const generation = voiceStopGeneration.current + 1;
+    voiceStopGeneration.current = generation;
+    let stop: Promise<string>;
+    try {
+      stop = Promise.resolve(voiceCapture.stopForReview());
+    } catch {
+      voiceStopPending.current = false;
+      return;
+    }
+
+    void stop.then(
       (transcript) => {
-        if (runtime.active && !runtime.terminated) {
+        if (
+          runtime.active
+          && !runtime.terminated
+          && voiceStopGeneration.current === generation
+          && voiceReviewRef.current === null
+        ) {
+          voiceReviewRef.current = transcript;
           dispatch({ type: "voice_review_changed", value: transcript });
         }
       },
       () => undefined,
-    );
+    ).finally(() => {
+      if (voiceStopGeneration.current === generation) {
+        voiceStopPending.current = false;
+      }
+    });
   }, [voiceCapture]);
 
   const onCancel = useCallback(async (): Promise<void> => {
@@ -274,14 +381,19 @@ export function usePresentationController(
       return;
     }
 
+    runtime.cancelRequested = true;
     runtime.terminated = true;
-    const sessionCancellation = runtime.session === null
-      ? Promise.resolve()
-      : runtime.session.cancel();
-    runtime.abortController.abort();
-    const voiceCancellation = voiceCapture.cancel();
+    voiceStopGeneration.current += 1;
+    voiceStopPending.current = false;
+    const sessionCancellation = requestSessionTeardown(runtime, "cancel");
+    abortOnce(runtime);
+    const voiceCancellation = requestVoiceTeardown(runtime);
+    dispatch({
+      type: "host_event",
+      event: { type: "session_closed", reason: "cancelled" },
+    });
     await Promise.allSettled([sessionCancellation, voiceCancellation]);
-  }, [voiceCapture]);
+  }, []);
 
   const actions = useMemo<PresentationControllerActions>(() => ({
     voiceAvailable: voiceCapture.available,

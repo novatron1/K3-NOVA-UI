@@ -246,6 +246,37 @@ describe("presentationReducer", () => {
     expect([...openOrgans]).toEqual(["contract"]);
   });
 
+  it("clears only the draft that completed submission", () => {
+    const newerDraft = presentationReducer(createInitialPresentationState(), {
+      type: "draft_changed",
+      value: "newer draft",
+    });
+
+    const next = presentationReducer(newerDraft, {
+      type: "draft_submission_resolved",
+      submittedValue: "older draft",
+    } as never);
+
+    expect(next.draft).toBe("newer draft");
+  });
+
+  it("clears only the voice transcript that completed submission", () => {
+    const newerTranscript = presentationReducer(
+      createInitialPresentationState(),
+      {
+        type: "voice_review_changed",
+        value: "newer transcript",
+      },
+    );
+
+    const next = presentationReducer(newerTranscript, {
+      type: "voice_review_submission_resolved",
+      submittedValue: "older transcript",
+    } as never);
+
+    expect(next.voiceReview).toBe("newer transcript");
+  });
+
   it("passes the public immutable facade to forEach callbacks", () => {
     const openOrgans = stateWithOpenContractOrgan().openOrgans;
     const callbackSets: ReadonlySet<string>[] = [];

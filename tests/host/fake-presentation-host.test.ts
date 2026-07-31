@@ -708,9 +708,10 @@ describe("FakePresentationHost", () => {
     expect(voiceCancel).toHaveBeenCalledTimes(1);
 
     view.unmount();
-    await waitFor(() => {
-      expect(voiceCancel).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await Promise.resolve();
     });
+    expect(voiceCancel).toHaveBeenCalledTimes(1);
   });
 
   it("unavailable voice capture never opens a microphone", async () => {

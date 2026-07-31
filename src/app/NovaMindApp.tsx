@@ -39,6 +39,8 @@ export function NovaMindApp({
   controller = UNAVAILABLE_CONTROLLER,
 }: NovaMindAppProps) {
   const { snapshot } = state;
+  const sessionTerminal = state.sessionState === "closed"
+    || state.sessionState === "failed";
   const visibleMessages = snapshot.phase === "processing"
     ? state.messages.filter((message) => message.author === "user")
     : state.messages;
@@ -90,7 +92,7 @@ export function NovaMindApp({
         voiceReview={state.voiceReview}
         privacyClass={snapshot.privacyClass}
         cloudConsentRequired={snapshot.cloudConsentRequired}
-        busy={snapshot.phase === "processing"}
+        busy={snapshot.phase === "processing" && !sessionTerminal}
         voiceAvailable={controller.voiceAvailable}
         onDraftChange={controller.onDraftChange}
         onSubmitText={controller.onSubmitText}

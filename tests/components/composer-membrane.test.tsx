@@ -18,6 +18,7 @@ import type {
   PresentationSession,
 } from "../../src/host/presentation-host";
 import {
+  type PresentationController,
   type PresentationControllerActions,
   usePresentationController,
 } from "../../src/state/use-presentation-controller";
@@ -26,21 +27,24 @@ import {
   type PresentationState,
 } from "../../src/state/presentation-reducer";
 import { makeSnapshot } from "../../src/test/fixtures";
-import { UnavailableVoiceCapture } from "../../src/voice/voice-capture";
+import {
+  UnavailableVoiceCapture,
+  type VoiceCaptureAdapter,
+} from "../../src/voice/voice-capture";
 
-function deferred(): {
-  readonly promise: Promise<void>;
-  readonly resolve: () => void;
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
 } {
-  let resolvePromise: (() => void) | undefined;
-  const promise = new Promise<void>((resolve) => {
+  let resolvePromise: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((resolve) => {
     resolvePromise = resolve;
   });
 
   return {
     promise,
-    resolve: () => {
-      resolvePromise?.();
+    resolve: (value) => {
+      resolvePromise?.(value);
     },
   };
 }
@@ -98,6 +102,33 @@ function ControllerComposer({ host }: {
   );
 }
 
+function ControllerApp({
+  host,
+  voice,
+  onController,
+}: {
+  readonly host: PresentationHostAdapter;
+  readonly voice: VoiceCaptureAdapter;
+  readonly onController: (controller: PresentationController) => void;
+}) {
+  const controller = usePresentationController(host, voice);
+  onController(controller);
+  return <NovaMindApp state={controller} controller={controller} />;
+}
+
+function sessionWith(
+  overrides: Partial<PresentationSession> = {},
+): PresentationSession {
+  return {
+    submitText: async () => {},
+    submitVoiceTranscript: async () => {},
+    decidePermission: async () => {},
+    cancel: async () => {},
+    close: async () => {},
+    ...overrides,
+  };
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -106,7 +137,7 @@ afterEach(() => {
 
 describe("ComposerMembrane", () => {
   it("submits nonempty text exactly once", async () => {
-    const submission = deferred();
+    const submission = deferred<void>();
     const receivedTexts: string[] = [];
     const session: PresentationSession = {
       submitText: (text) => {
@@ -134,7 +165,7 @@ describe("ComposerMembrane", () => {
     expect(textbox).toHaveValue("Keep this private");
 
     await act(async () => {
-      submission.resolve();
+      submission.resolve(undefined);
       await submission.promise;
     });
 
@@ -300,7 +331,7 @@ describe("ComposerMembrane", () => {
   it("cancel aborts presentation work immediately", async () => {
     let presentationWorkPending = true;
     let sessionConnected = false;
-    const cancellationFinished = deferred();
+    const cancellationFinished = deferred<void>();
     const session: PresentationSession = {
       submitText: async () => {},
       submitVoiceTranscript: async () => {},
@@ -333,8 +364,363 @@ describe("ComposerMembrane", () => {
     expect(presentationWorkPending).toBe(false);
 
     await act(async () => {
-      cancellationFinished.resolve();
+      cancellationFinished.resolve(undefined);
       await cancellationFinished.promise;
     });
+  });
+
+  it("cancels a session that connects after cancellation was requested", async () => {
+    const connection = deferred<PresentationSession>();
+    let connectStarted = false;
+    let cancelCount = 0;
+    let closeCount = 0;
+    const lateSession = sessionWith({
+      cancel: async () => {
+        cancelCount += 1;
+      },
+      close: async () => {
+        closeCount += 1;
+      },
+    });
+    const host: PresentationHostAdapter = {
+      connect: () => {
+        connectStarted = true;
+        return connection.promise;
+      },
+    };
+
+    render(<ControllerComposer host={host} />);
+    await waitFor(() => {
+      expect(connectStarted).toBe(true);
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Cancel presentation" }),
+    );
+
+    await act(async () => {
+      connection.resolve(lateSession);
+      await connection.promise;
+    });
+
+    await waitFor(() => {
+      expect(cancelCount).toBe(1);
+    });
+    expect(closeCount).toBe(0);
+  });
+
+  it("preserves a newer draft when an older text submission resolves", async () => {
+    const submission = deferred<void>();
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    const submittedTexts: string[] = [];
+    const session = sessionWith({
+      submitText: (text) => {
+        submittedTexts.push(text);
+        return submission.promise;
+      },
+    });
+    const host: PresentationHostAdapter = { connect: async () => session };
+    const voice = new UnavailableVoiceCapture();
+    render(
+      <ControllerApp
+        host={host}
+        voice={voice}
+        onController={(value) => {
+          controller.current = value;
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(controller.current).not.toBeNull();
+    });
+
+    await act(async () => {
+      controller.current?.onDraftChange("first draft");
+    });
+    const firstSubmission = controller.current?.onSubmitText();
+    expect(submittedTexts).toEqual(["first draft"]);
+
+    controller.current?.onDraftChange("newer draft");
+    submission.resolve(undefined);
+    await firstSubmission;
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Message" }))
+        .toHaveValue("newer draft");
+    });
+  });
+
+  it("preserves a newer transcript when an older voice submission resolves", async () => {
+    const voiceSubmission = deferred<void>();
+    const firstStop = deferred<string>();
+    const secondStop = deferred<string>();
+    const stops = [firstStop.promise, secondStop.promise];
+    let stopIndex = 0;
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    const voice: VoiceCaptureAdapter = {
+      available: true,
+      start: async () => {},
+      stopForReview: () => stops[stopIndex++] ?? Promise.resolve("unexpected"),
+      cancel: async () => {},
+    };
+    const session = sessionWith({
+      submitVoiceTranscript: () => voiceSubmission.promise,
+    });
+    const host: PresentationHostAdapter = { connect: async () => session };
+    render(
+      <ControllerApp
+        host={host}
+        voice={voice}
+        onController={(value) => {
+          controller.current = value;
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(controller.current).not.toBeNull();
+    });
+    controller.current?.onVoiceStop();
+    await act(async () => {
+      firstStop.resolve("first transcript");
+      await firstStop.promise;
+    });
+    await waitFor(() => {
+      expect(screen.getByText("first transcript")).toBeVisible();
+    });
+
+    const firstSubmission = controller.current?.onSubmitVoiceReview();
+    controller.current?.onDiscardVoiceReview();
+    controller.current?.onVoiceStop();
+    secondStop.resolve("newer transcript");
+    voiceSubmission.resolve(undefined);
+    await secondStop.promise;
+    await voiceSubmission.promise;
+    await firstSubmission;
+
+    await waitFor(() => {
+      expect(screen.getByText("newer transcript")).toBeVisible();
+    });
+  });
+
+  it("serializes voice stops and blocks capture while review is pending", async () => {
+    const stop = deferred<string>();
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    let startCount = 0;
+    let stopCount = 0;
+    const voice: VoiceCaptureAdapter = {
+      available: true,
+      start: async () => {
+        startCount += 1;
+      },
+      stopForReview: () => {
+        stopCount += 1;
+        return stop.promise;
+      },
+      cancel: async () => {},
+    };
+    const host: PresentationHostAdapter = {
+      connect: async () => sessionWith(),
+    };
+    render(
+      <ControllerApp
+        host={host}
+        voice={voice}
+        onController={(value) => {
+          controller.current = value;
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(controller.current).not.toBeNull();
+    });
+
+    controller.current?.onVoiceStop();
+    controller.current?.onVoiceStop();
+    expect(stopCount).toBe(1);
+
+    await act(async () => {
+      stop.resolve("review before another capture");
+      await stop.promise;
+    });
+    await waitFor(() => {
+      expect(screen.getByText("review before another capture")).toBeVisible();
+    });
+
+    controller.current?.onVoiceStart();
+    expect(startCount).toBe(0);
+    act(() => {
+      controller.current?.onDiscardVoiceReview();
+    });
+    controller.current?.onVoiceStart();
+    expect(startCount).toBe(1);
+  });
+
+  it("becomes terminal and non-busy before cancellation work resolves", async () => {
+    const cancellation = deferred<void>();
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    const session = sessionWith({ cancel: () => cancellation.promise });
+    const host: PresentationHostAdapter = {
+      connect: async (handlers) => {
+        handlers.onEvent({
+          type: "snapshot",
+          snapshot: makeSnapshot({ phase: "processing" }),
+        });
+        return session;
+      },
+    };
+    render(
+      <ControllerApp
+        host={host}
+        voice={new UnavailableVoiceCapture()}
+        onController={(value) => {
+          controller.current = value;
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(controller.current?.sessionState).toBe("connected");
+      expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Cancel presentation" }),
+    );
+
+    await waitFor(() => {
+      expect(controller.current?.sessionState).toBe("closed");
+      expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    });
+
+    await act(async () => {
+      cancellation.resolve(undefined);
+      await cancellation.promise;
+    });
+  });
+
+  it("contains synchronous cancellation failures and continues teardown", async () => {
+    const sessionSentinel = "SYNC_SESSION_CANCEL_PRIVATE_SENTINEL";
+    const voiceSentinel = "SYNC_VOICE_CANCEL_PRIVATE_SENTINEL";
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    let connectedSignal: AbortSignal | null = null;
+    let voiceCancelCount = 0;
+    const session = sessionWith({
+      cancel: () => {
+        throw new Error(sessionSentinel);
+      },
+    });
+    const host: PresentationHostAdapter = {
+      connect: async (_handlers, signal) => {
+        connectedSignal = signal;
+        return session;
+      },
+    };
+    const voice: VoiceCaptureAdapter = {
+      available: false,
+      start: async () => {},
+      stopForReview: async () => "",
+      cancel: () => {
+        voiceCancelCount += 1;
+        throw new Error(voiceSentinel);
+      },
+    };
+    render(
+      <ControllerApp
+        host={host}
+        voice={voice}
+        onController={(value) => {
+          controller.current = value;
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(controller.current).not.toBeNull();
+      expect(connectedSignal).not.toBeNull();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    let cancellationFailure: unknown = null;
+    try {
+      await act(async () => {
+        await controller.current?.onCancel();
+      });
+    } catch (error: unknown) {
+      cancellationFailure = error;
+    }
+
+    expect(cancellationFailure).toBeNull();
+    expect((connectedSignal as AbortSignal | null)?.aborted).toBe(true);
+    expect(voiceCancelCount).toBe(1);
+    expect(controller.current?.sessionState).toBe("closed");
+    expect(JSON.stringify(controller.current)).not.toContain(sessionSentinel);
+    expect(JSON.stringify(controller.current)).not.toContain(voiceSentinel);
+  });
+
+  it("contains rejected cancellation promises without an unhandled rejection", async () => {
+    const sessionSentinel = "REJECTED_SESSION_CANCEL_PRIVATE_SENTINEL";
+    const voiceSentinel = "REJECTED_VOICE_CANCEL_PRIVATE_SENTINEL";
+    const unhandledRejections: unknown[] = [];
+    const observeUnhandled = (reason: unknown): void => {
+      unhandledRejections.push(reason);
+    };
+    process.on("unhandledRejection", observeUnhandled);
+    const controller: { current: PresentationController | null } = {
+      current: null,
+    };
+    const session = sessionWith({
+      cancel: () => Promise.reject(new Error(sessionSentinel)),
+    });
+    const host: PresentationHostAdapter = { connect: async () => session };
+    const voice: VoiceCaptureAdapter = {
+      available: false,
+      start: async () => {},
+      stopForReview: async () => "",
+      cancel: () => Promise.reject(new Error(voiceSentinel)),
+    };
+
+    try {
+      render(
+        <ControllerApp
+          host={host}
+          voice={voice}
+          onController={(value) => {
+            controller.current = value;
+          }}
+        />,
+      );
+      await waitFor(() => {
+        expect(controller.current).not.toBeNull();
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Cancel presentation" }),
+      );
+      await waitFor(() => {
+        expect(controller.current?.sessionState).toBe("closed");
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(unhandledRejections).toEqual([]);
+      expect(JSON.stringify(controller.current)).not.toContain(sessionSentinel);
+      expect(JSON.stringify(controller.current)).not.toContain(voiceSentinel);
+    } finally {
+      process.off("unhandledRejection", observeUnhandled);
+    }
   });
 });
