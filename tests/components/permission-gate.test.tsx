@@ -893,6 +893,7 @@ describe("trusted permission gate", () => {
           onDiscardVoiceReview: () => {},
           onVoiceStart: () => {},
           onVoiceStop: () => {},
+          onOrganToggle: () => {},
           onPermissionDecision: onDecision,
           onCancel: async () => {},
         }}

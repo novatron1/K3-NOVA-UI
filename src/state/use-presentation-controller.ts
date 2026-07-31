@@ -9,6 +9,7 @@ import {
 import type { HostPresentationEvent } from "../domain/presentation-events";
 import {
   trustedActivePermissionGate,
+  type LivingOrganId,
   type TrustedPermissionGate,
 } from "../domain/presentation-types";
 import type {
@@ -78,6 +79,7 @@ export interface PresentationControllerActions {
   readonly onDiscardVoiceReview: () => void;
   readonly onVoiceStart: () => void;
   readonly onVoiceStop: () => void;
+  readonly onOrganToggle: (organId: LivingOrganId) => void;
   readonly onPermissionDecision: (
     approvalRequestId: string,
     decision: "approve" | "deny" | "cancel",
@@ -313,6 +315,10 @@ export function usePresentationController(
     draftRef.current = value;
     draftRevision.current += 1;
     dispatch({ type: "draft_changed", value });
+  }, []);
+
+  const onOrganToggle = useCallback((organId: LivingOrganId): void => {
+    dispatch({ type: "organ_toggled", organId });
   }, []);
 
   const onSubmitText = useCallback(async (): Promise<void> => {
@@ -610,12 +616,14 @@ export function usePresentationController(
     onDiscardVoiceReview,
     onVoiceStart,
     onVoiceStop,
+    onOrganToggle,
     onPermissionDecision,
     onCancel,
   }), [
     onCancel,
     onDiscardVoiceReview,
     onDraftChange,
+    onOrganToggle,
     onPermissionDecision,
     onSubmitText,
     onSubmitVoiceReview,

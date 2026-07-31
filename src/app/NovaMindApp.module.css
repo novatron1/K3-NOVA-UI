@@ -217,6 +217,129 @@
   margin: 0 auto 2rem;
 }
 
+:global(.living-organs) {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: min(90rem, 100%);
+  margin: -5rem auto 3rem;
+  grid-template-columns: repeat(5, minmax(9rem, 1fr));
+  gap: 0.75rem;
+}
+
+:global(.living-organ) {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--nova-trust-accent) 28%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--nova-surface-organic) 88%, transparent);
+  box-shadow: inset 0 0 1.2rem color-mix(in srgb, var(--nova-trust-accent) 5%, transparent);
+  color: var(--nova-text);
+}
+
+:global(.living-organ) button {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 5.5rem;
+  padding: 0.8rem 2rem 0.8rem 0.85rem;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  gap: 0.4rem;
+}
+
+:global(.living-organ) button:disabled {
+  cursor: not-allowed;
+}
+
+:global(.living-organ-title) {
+  color: var(--nova-text);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+:global(.living-organ-summary) {
+  overflow-wrap: anywhere;
+  color: var(--nova-text-muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+:global(.living-organ-signal) {
+  position: absolute;
+  top: 1rem;
+  right: 0.85rem;
+  width: 0.58rem;
+  height: 0.58rem;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: var(--nova-trust-accent);
+  box-shadow: 0 0 0.7rem currentColor;
+}
+
+:global(.living-organ-signal--pulse) {
+  animation: nova-organ-trusted-pulse 760ms ease-out 1;
+}
+
+:global(.living-organ) section {
+  padding: 0 0.85rem 0.85rem;
+  border-top: 1px solid color-mix(in srgb, var(--nova-trust-accent) 16%, transparent);
+  color: var(--nova-text-muted);
+  font-size: 0.72rem;
+}
+
+:global(.living-organ) section p {
+  margin: 0.65rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+:global(.living-organ) section ul {
+  padding-left: 1.15rem;
+  margin: 0.65rem 0 0;
+}
+
+:global(.living-organ) section li + li {
+  margin-top: 0.35rem;
+}
+
+:global(.living-organ[data-organ-tone="unavailable"]) {
+  border-color: color-mix(in srgb, var(--nova-text-muted) 36%, transparent);
+  box-shadow: none;
+  color: var(--nova-text-muted);
+  filter: grayscale(1);
+}
+
+:global(.living-organ[data-organ-tone="unavailable"] .living-organ-signal) {
+  color: var(--nova-text-muted);
+  box-shadow: none;
+}
+
+@keyframes nova-organ-trusted-pulse {
+  0% {
+    box-shadow: 0 0 0 0 currentColor;
+    opacity: 0.7;
+    transform: scale(0.82);
+  }
+
+  55% {
+    box-shadow: 0 0 0 0.55rem transparent;
+    opacity: 1;
+    transform: scale(1.18);
+  }
+
+  100% {
+    box-shadow: 0 0 0.7rem currentColor;
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 :global(.conversation-field) {
   display: grid;
   gap: 0.9rem;

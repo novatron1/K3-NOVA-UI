@@ -1,0 +1,363 @@
+import { Component, type ReactNode } from "react";
+
+import type {
+  EvidenceState,
+  LivingOrganId,
+  RollbackState,
+  SanitizedHostSnapshot,
+} from "../domain/presentation-types";
+
+export interface LivingOrgansProps {
+  readonly snapshot: SanitizedHostSnapshot;
+  readonly openOrgans: ReadonlySet<LivingOrganId>;
+  readonly onToggle: (organId: LivingOrganId) => void;
+}
+
+interface OrganDetail {
+  readonly label: string;
+  readonly value: string;
+}
+
+interface OrganView {
+  readonly state: string;
+  readonly tone: "available" | "unavailable";
+  readonly label: string;
+  readonly details: readonly OrganDetail[];
+  readonly summaryItems: readonly string[];
+  readonly motionTokens: readonly string[];
+  readonly locked?: boolean;
+}
+
+interface OrganDescriptor {
+  readonly id: LivingOrganId;
+  readonly title: string;
+  readonly select: (snapshot: SanitizedHostSnapshot) => OrganView;
+}
+
+const EVIDENCE_LABELS: Readonly<Record<EvidenceState, string>> = Object.freeze({
+  not_requested: "Not requested",
+  pending: "Pending",
+  verified: "Verified",
+  verified_with_warnings: "Verified with warnings",
+  failed: "Failed",
+  blocked: "Blocked",
+});
+
+const ROLLBACK_LABELS: Readonly<Record<RollbackState, string>> = Object.freeze({
+  not_required: "Not required",
+  checkpointed: "Checkpointed",
+  restoring: "Restoring",
+  verified: "Verified",
+  failed: "Failed",
+});
+
+function firstSummary(
+  summary: readonly string[],
+  unavailableLabel: string,
+): string {
+  return summary[0] ?? unavailableLabel;
+}
+
+const ORGAN_DESCRIPTORS: readonly OrganDescriptor[] = Object.freeze([
+  {
+    id: "contract",
+    title: "Run contract",
+    select: (snapshot) => ({
+      state: snapshot.phase,
+      tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
+      label: snapshot.statusLabel,
+      details: [
+        { label: "Run ID", value: snapshot.runId },
+        { label: "Run phase", value: snapshot.phase },
+        { label: "Run status", value: snapshot.statusLabel },
+      ],
+      summaryItems: snapshot.contractSummary,
+      motionTokens: [
+        snapshot.runId,
+        snapshot.phase,
+        snapshot.statusLabel,
+        ...snapshot.contractSummary,
+      ],
+    }),
+  },
+  {
+    id: "permissions",
+    title: "Permissions",
+    select: (snapshot) => ({
+      state: "reported",
+      tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
+      label: firstSummary(
+        snapshot.permissionSummary,
+        "No sanitized permission summary",
+      ),
+      details: [],
+      summaryItems: snapshot.permissionSummary,
+      motionTokens: [...snapshot.permissionSummary],
+    }),
+  },
+  {
+    id: "ledger",
+    title: "Ledger timeline",
+    select: (snapshot) => ({
+      state: "sanitized",
+      tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
+      label: firstSummary(
+        snapshot.ledgerSummary,
+        "No sanitized ledger summary",
+      ),
+      details: [],
+      summaryItems: snapshot.ledgerSummary,
+      motionTokens: [...snapshot.ledgerSummary],
+    }),
+  },
+  {
+    id: "evidence",
+    title: "Evidence",
+    select: (snapshot) => ({
+      state: snapshot.evidence,
+      tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
+      label: snapshot.evidenceLabel,
+      details: [
+        {
+          label: "Evidence state",
+          value: EVIDENCE_LABELS[snapshot.evidence],
+        },
+        { label: "Sanitized label", value: snapshot.evidenceLabel },
+      ],
+      summaryItems: [],
+      motionTokens: [snapshot.evidence, snapshot.evidenceLabel],
+    }),
+  },
+  {
+    id: "provider",
+    title: "Provider and model",
+    select: (snapshot) => ({
+      state: "reported",
+      tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
+      label: `${snapshot.providerLabel} · ${snapshot.modelLabel}`,
+      details: [
+        { label: "Provider", value: snapshot.providerLabel },
+        { label: "Model", value: snapshot.modelLabel },
+      ],
+      summaryItems: [],
+      motionTokens: [snapshot.providerLabel, snapshot.modelLabel],
+    }),
+  },
+  {
+    id: "privacy",
+    title: "Privacy and consent",
+    select: (snapshot) => ({
+      state: snapshot.privacyClass,
+      tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
+      label: `Privacy: ${snapshot.privacyClass}`,
+      details: [
+        { label: "Privacy classification", value: snapshot.privacyClass },
+        {
+          label: "Cloud consent required",
+          value: snapshot.cloudConsentRequired ? "Yes" : "No",
+        },
+        {
+          label: "Cloud consent granted",
+          value: snapshot.cloudConsentGranted ? "Yes" : "No",
+        },
+      ],
+      summaryItems: [],
+      motionTokens: [
+        snapshot.privacyClass,
+        snapshot.cloudConsentRequired ? "required" : "not-required",
+        snapshot.cloudConsentGranted ? "granted" : "not-granted",
+      ],
+    }),
+  },
+  {
+    id: "budgets",
+    title: "Budgets",
+    select: (snapshot) => ({
+      state: "reported",
+      tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
+      label: firstSummary(snapshot.budgetSummary, "No sanitized budget summary"),
+      details: [],
+      summaryItems: snapshot.budgetSummary,
+      motionTokens: [...snapshot.budgetSummary],
+    }),
+  },
+  {
+    id: "isolation",
+    title: "Isolation",
+    select: (snapshot) => ({
+      state: snapshot.isolation,
+      tone: snapshot.isolation === "unavailable"
+        ? "unavailable"
+        : "available",
+      label: snapshot.isolationLabel,
+      details: [
+        { label: "Isolation state", value: snapshot.isolation },
+        { label: "Sanitized label", value: snapshot.isolationLabel },
+      ],
+      summaryItems: [],
+      motionTokens: [snapshot.isolation, snapshot.isolationLabel],
+      locked: snapshot.isolation === "unavailable",
+    }),
+  },
+  {
+    id: "observer",
+    title: "Observer",
+    select: (snapshot) => ({
+      state: "sanitized",
+      tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
+      label: firstSummary(
+        snapshot.observerSummary,
+        "No sanitized observer summary",
+      ),
+      details: [],
+      summaryItems: snapshot.observerSummary,
+      motionTokens: [...snapshot.observerSummary],
+    }),
+  },
+  {
+    id: "rollback",
+    title: "Rollback",
+    select: (snapshot) => ({
+      state: snapshot.rollback,
+      tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
+      label: snapshot.rollbackLabel,
+      details: [
+        {
+          label: "Rollback state",
+          value: ROLLBACK_LABELS[snapshot.rollback],
+        },
+        { label: "Sanitized label", value: snapshot.rollbackLabel },
+      ],
+      summaryItems: [],
+      motionTokens: [snapshot.rollback, snapshot.rollbackLabel],
+    }),
+  },
+] satisfies readonly OrganDescriptor[]);
+
+interface OrganCardProps {
+  readonly descriptor: OrganDescriptor;
+  readonly snapshot: SanitizedHostSnapshot;
+  readonly open: boolean;
+  readonly onToggle: (organId: LivingOrganId) => void;
+}
+
+interface OrganCardState {
+  readonly motionRevision: number;
+  readonly motionTokens: readonly string[];
+}
+
+function equalTokens(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return left.length === right.length
+    && left.every((token, index) => token === right[index]);
+}
+
+class OrganCard extends Component<OrganCardProps, OrganCardState> {
+  constructor(props: OrganCardProps) {
+    super(props);
+    this.state = {
+      motionRevision: 0,
+      motionTokens: props.descriptor.select(props.snapshot).motionTokens,
+    };
+  }
+
+  static getDerivedStateFromProps(
+    props: OrganCardProps,
+    state: OrganCardState,
+  ): OrganCardState | null {
+    const motionTokens = props.descriptor.select(props.snapshot).motionTokens;
+    if (equalTokens(state.motionTokens, motionTokens)) {
+      return null;
+    }
+
+    return {
+      motionRevision: state.motionRevision + 1,
+      motionTokens,
+    };
+  }
+
+  override render(): ReactNode {
+    const { descriptor, onToggle, open, snapshot } = this.props;
+    const { motionRevision } = this.state;
+    const view = descriptor.select(snapshot);
+    const locked = view.locked === true;
+    const expanded = !locked && open;
+    const controlId = `living-organ-${descriptor.id}-control`;
+    const panelId = `living-organ-${descriptor.id}-panel`;
+
+    return (
+      <article
+        className="living-organ"
+        data-organ-id={descriptor.id}
+        data-organ-state={view.state}
+        data-organ-tone={view.tone}
+        data-locked={locked ? "true" : undefined}
+      >
+        <button
+          id={controlId}
+          type="button"
+          aria-controls={panelId}
+          aria-expanded={expanded}
+          aria-disabled={locked ? "true" : undefined}
+          disabled={locked}
+          onClick={() => onToggle(descriptor.id)}
+        >
+          <span className="living-organ-title">{descriptor.title}</span>
+          <span className="living-organ-summary">{view.label}</span>
+          <span
+            key={`${descriptor.id}:${motionRevision}`}
+            className={motionRevision === 0
+              ? "living-organ-signal"
+              : "living-organ-signal living-organ-signal--pulse"}
+            data-organ-pulse=""
+            data-motion-revision={motionRevision}
+            aria-hidden="true"
+          />
+        </button>
+
+        {expanded
+          ? (
+              <section id={panelId} aria-labelledby={controlId}>
+                {view.details.map((detail) => (
+                  <p key={detail.label}>
+                    {`${detail.label}: ${detail.value}`}
+                  </p>
+                ))}
+                {view.summaryItems.length === 0
+                  ? null
+                  : (
+                      <ul>
+                        {view.summaryItems.map((item, index) => (
+                          <li key={`${index}:${item}`}>{item}</li>
+                        ))}
+                      </ul>
+                    )}
+              </section>
+            )
+          : null}
+      </article>
+    );
+  }
+}
+
+export function LivingOrgans({
+  snapshot,
+  openOrgans,
+  onToggle,
+}: LivingOrgansProps) {
+  return (
+    <aside className="living-organs" aria-label="Technical status organs">
+      {ORGAN_DESCRIPTORS.map((descriptor) => (
+        <OrganCard
+          key={descriptor.id}
+          descriptor={descriptor}
+          snapshot={snapshot}
+          open={openOrgans.has(descriptor.id)}
+          onToggle={onToggle}
+        />
+      ))}
+    </aside>
+  );
+}

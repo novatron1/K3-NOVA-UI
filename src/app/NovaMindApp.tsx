@@ -1,6 +1,7 @@
 import { NovaCore } from "../components/NovaCore";
 import { ConversationField } from "../components/ConversationField";
 import { ComposerMembrane } from "../components/ComposerMembrane";
+import { LivingOrgans } from "../components/LivingOrgans";
 import { PermissionGate } from "../components/PermissionGate";
 import { StatusAnnouncer } from "../components/StatusAnnouncer";
 import { TrustHalo } from "../components/TrustHalo";
@@ -35,6 +36,7 @@ const UNAVAILABLE_CONTROLLER: PresentationControllerActions = Object.freeze({
   onDiscardVoiceReview: () => {},
   onVoiceStart: () => {},
   onVoiceStop: () => {},
+  onOrganToggle: () => {},
   onPermissionDecision: () => Promise.resolve(),
   onCancel: () => Promise.resolve(),
 });
@@ -92,6 +94,12 @@ export function NovaMindApp({
             />
           </div>
         </section>
+
+        <LivingOrgans
+          snapshot={snapshot}
+          openOrgans={state.openOrgans}
+          onToggle={controller.onOrganToggle}
+        />
 
         <section
           className="nova-conversation"
