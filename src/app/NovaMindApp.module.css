@@ -252,6 +252,73 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+:global(.composer-membrane) {
+  display: grid;
+  width: min(52rem, 100%);
+  margin: 0 auto;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--nova-trust-accent) 38%, transparent);
+  border-radius: 1.1rem;
+  background: color-mix(in srgb, var(--nova-surface-organic) 88%, transparent);
+  gap: 0.9rem;
+}
+
+:global(.composer-privacy) {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--nova-text-muted);
+  font-size: 0.72rem;
+}
+
+:global(.composer-membrane) form,
+:global(.composer-voice-review) {
+  display: grid;
+  gap: 0.65rem;
+}
+
+:global(.composer-membrane) label,
+:global(.composer-voice-review) h3,
+:global(.composer-voice-review) p {
+  margin: 0;
+}
+
+:global(.composer-membrane) textarea {
+  min-height: 6rem;
+  resize: vertical;
+  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--nova-trust-accent) 35%, transparent);
+  border-radius: 0.75rem;
+  background: var(--nova-surface-void);
+  color: var(--nova-text);
+  font: inherit;
+}
+
+:global(.composer-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+:global(.composer-actions) button {
+  min-height: 2.75rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--nova-trust-accent) 45%, transparent);
+  border-radius: 0.75rem;
+  background: var(--nova-surface-void);
+  color: var(--nova-text);
+}
+
+:global(.composer-actions) button:disabled {
+  color: var(--nova-text-muted);
+  cursor: not-allowed;
+}
+
+:global(.composer-actions .composer-cancel) {
+  margin-left: auto;
+  border-color: color-mix(in srgb, var(--nova-deny) 55%, transparent);
+}
+
 :global(.nova-announcer) {
   position: absolute;
   width: 1px;

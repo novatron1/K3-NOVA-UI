@@ -1,4 +1,10 @@
-import { useEffect, useReducer } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+} from "react";
 
 import type { HostPresentationEvent } from "../domain/presentation-events";
 import type {
@@ -36,27 +42,61 @@ function failureEvent(
   });
 }
 
+export interface PresentationControllerActions {
+  readonly voiceAvailable: boolean;
+  readonly onDraftChange: (value: string) => void;
+  readonly onSubmitText: () => Promise<void>;
+  readonly onSubmitVoiceReview: () => Promise<void>;
+  readonly onDiscardVoiceReview: () => void;
+  readonly onVoiceStart: () => void;
+  readonly onVoiceStop: () => void;
+  readonly onCancel: () => Promise<void>;
+}
+
+export type PresentationController =
+  & PresentationState
+  & PresentationControllerActions;
+
+interface ControllerRuntime {
+  readonly abortController: AbortController;
+  active: boolean;
+  terminated: boolean;
+  session: PresentationSession | null;
+}
+
 export function usePresentationController(
   host: PresentationHostAdapter,
   voiceCapture: VoiceCaptureAdapter,
-): PresentationState {
+): PresentationController {
   const [state, dispatch] = useReducer(
     presentationReducer,
     undefined,
     createInitialPresentationState,
   );
+  const stateRef = useRef(state);
+  const runtimeRef = useRef<ControllerRuntime | null>(null);
+  const textSubmissionPending = useRef(false);
+  const voiceSubmissionPending = useRef(false);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     const abortController = new AbortController();
-    let active = true;
-    let terminated = false;
-    let session: PresentationSession | null = null;
+    const runtime: ControllerRuntime = {
+      abortController,
+      active: true,
+      terminated: false,
+      session: null,
+    };
+    runtimeRef.current = runtime;
 
     const cleanupAdapters = (): void => {
       abortController.abort();
       ignoreFailure(() => voiceCapture.cancel());
-      if (session !== null) {
-        const connectedSession = session;
+      if (runtime.session !== null) {
+        const connectedSession = runtime.session;
         ignoreFailure(() => connectedSession.close());
       }
     };
@@ -64,11 +104,11 @@ export function usePresentationController(
     const terminate = (
       code: "invalid_event" | "host_unavailable",
     ): void => {
-      if (!active || terminated) {
+      if (!runtime.active || runtime.terminated) {
         return;
       }
 
-      terminated = true;
+      runtime.terminated = true;
       dispatch({ type: "host_event", event: failureEvent(code) });
       cleanupAdapters();
     };
@@ -77,7 +117,7 @@ export function usePresentationController(
     try {
       connection = host.connect({
         onEvent: (candidate) => {
-          if (!active || terminated) {
+          if (!runtime.active || runtime.terminated) {
             return;
           }
 
@@ -88,7 +128,7 @@ export function usePresentationController(
           }
 
           if (validation.event.type === "session_closed") {
-            terminated = true;
+            runtime.terminated = true;
             dispatch({ type: "host_event", event: validation.event });
             cleanupAdapters();
             return;
@@ -105,11 +145,11 @@ export function usePresentationController(
     if (connection !== null) {
       void connection.then(
         (connectedSession) => {
-          if (!active || terminated) {
+          if (!runtime.active || runtime.terminated) {
             ignoreFailure(() => connectedSession.close());
             return;
           }
-          session = connectedSession;
+          runtime.session = connectedSession;
         },
         () => {
           terminate("host_unavailable");
@@ -118,11 +158,153 @@ export function usePresentationController(
     }
 
     return () => {
-      active = false;
-      terminated = true;
+      runtime.active = false;
+      runtime.terminated = true;
       cleanupAdapters();
+      if (runtimeRef.current === runtime) {
+        runtimeRef.current = null;
+      }
     };
   }, [host, voiceCapture]);
 
-  return state;
+  const onDraftChange = useCallback((value: string): void => {
+    dispatch({ type: "draft_changed", value });
+  }, []);
+
+  const onSubmitText = useCallback(async (): Promise<void> => {
+    const runtime = runtimeRef.current;
+    const draft = stateRef.current.draft;
+    if (
+      runtime === null
+      || !runtime.active
+      || runtime.terminated
+      || runtime.session === null
+      || draft.trim().length === 0
+      || textSubmissionPending.current
+    ) {
+      return;
+    }
+
+    textSubmissionPending.current = true;
+    try {
+      await runtime.session.submitText(draft);
+      if (
+        runtime.active
+        && !runtime.terminated
+        && stateRef.current.draft === draft
+      ) {
+        dispatch({ type: "draft_changed", value: "" });
+      }
+    } finally {
+      textSubmissionPending.current = false;
+    }
+  }, []);
+
+  const onSubmitVoiceReview = useCallback(async (): Promise<void> => {
+    const runtime = runtimeRef.current;
+    const voiceReview = stateRef.current.voiceReview;
+    if (
+      runtime === null
+      || !runtime.active
+      || runtime.terminated
+      || runtime.session === null
+      || voiceReview === null
+      || voiceSubmissionPending.current
+    ) {
+      return;
+    }
+
+    voiceSubmissionPending.current = true;
+    try {
+      await runtime.session.submitVoiceTranscript(voiceReview);
+      if (
+        runtime.active
+        && !runtime.terminated
+        && stateRef.current.voiceReview === voiceReview
+      ) {
+        dispatch({ type: "voice_review_changed", value: null });
+      }
+    } finally {
+      voiceSubmissionPending.current = false;
+    }
+  }, []);
+
+  const onDiscardVoiceReview = useCallback((): void => {
+    dispatch({ type: "voice_review_changed", value: null });
+  }, []);
+
+  const onVoiceStart = useCallback((): void => {
+    const runtime = runtimeRef.current;
+    if (
+      !voiceCapture.available
+      || runtime === null
+      || !runtime.active
+      || runtime.terminated
+    ) {
+      return;
+    }
+
+    ignoreFailure(() => voiceCapture.start(runtime.abortController.signal));
+  }, [voiceCapture]);
+
+  const onVoiceStop = useCallback((): void => {
+    const runtime = runtimeRef.current;
+    if (
+      !voiceCapture.available
+      || runtime === null
+      || !runtime.active
+      || runtime.terminated
+    ) {
+      return;
+    }
+
+    void voiceCapture.stopForReview().then(
+      (transcript) => {
+        if (runtime.active && !runtime.terminated) {
+          dispatch({ type: "voice_review_changed", value: transcript });
+        }
+      },
+      () => undefined,
+    );
+  }, [voiceCapture]);
+
+  const onCancel = useCallback(async (): Promise<void> => {
+    const runtime = runtimeRef.current;
+    if (runtime === null || !runtime.active || runtime.terminated) {
+      return;
+    }
+
+    runtime.terminated = true;
+    const sessionCancellation = runtime.session === null
+      ? Promise.resolve()
+      : runtime.session.cancel();
+    runtime.abortController.abort();
+    const voiceCancellation = voiceCapture.cancel();
+    await Promise.allSettled([sessionCancellation, voiceCancellation]);
+  }, [voiceCapture]);
+
+  const actions = useMemo<PresentationControllerActions>(() => ({
+    voiceAvailable: voiceCapture.available,
+    onDraftChange,
+    onSubmitText,
+    onSubmitVoiceReview,
+    onDiscardVoiceReview,
+    onVoiceStart,
+    onVoiceStop,
+    onCancel,
+  }), [
+    onCancel,
+    onDiscardVoiceReview,
+    onDraftChange,
+    onSubmitText,
+    onSubmitVoiceReview,
+    onVoiceStart,
+    onVoiceStop,
+    voiceCapture.available,
+  ]);
+
+  return useMemo(
+    () => ({ ...state, ...actions }),
+    [actions, state],
+  );
 }

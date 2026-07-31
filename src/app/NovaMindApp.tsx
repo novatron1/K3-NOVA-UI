@@ -1,13 +1,18 @@
 import { NovaCore } from "../components/NovaCore";
 import { ConversationField } from "../components/ConversationField";
+import { ComposerMembrane } from "../components/ComposerMembrane";
 import { StatusAnnouncer } from "../components/StatusAnnouncer";
 import { TrustHalo } from "../components/TrustHalo";
 import type { TrustTone } from "../domain/presentation-types";
 import type { PresentationState } from "../state/presentation-reducer";
+import type {
+  PresentationControllerActions,
+} from "../state/use-presentation-controller";
 import "./NovaMindApp.module.css";
 
 export interface NovaMindAppProps {
   readonly state: PresentationState;
+  readonly controller?: PresentationControllerActions;
 }
 
 const TRUST_LABELS: Readonly<Record<TrustTone, string>> = Object.freeze({
@@ -18,9 +23,21 @@ const TRUST_LABELS: Readonly<Record<TrustTone, string>> = Object.freeze({
   fail_closed: "Fail closed",
 });
 
-function unavailableVoiceAction(): void {}
+const UNAVAILABLE_CONTROLLER: PresentationControllerActions = Object.freeze({
+  voiceAvailable: false,
+  onDraftChange: () => {},
+  onSubmitText: () => Promise.resolve(),
+  onSubmitVoiceReview: () => Promise.resolve(),
+  onDiscardVoiceReview: () => {},
+  onVoiceStart: () => {},
+  onVoiceStop: () => {},
+  onCancel: () => Promise.resolve(),
+});
 
-export function NovaMindApp({ state }: NovaMindAppProps) {
+export function NovaMindApp({
+  state,
+  controller = UNAVAILABLE_CONTROLLER,
+}: NovaMindAppProps) {
   const { snapshot } = state;
   const visibleMessages = snapshot.phase === "processing"
     ? state.messages.filter((message) => message.author === "user")
@@ -54,9 +71,9 @@ export function NovaMindApp({ state }: NovaMindAppProps) {
           <NovaCore
             phase={snapshot.phase}
             statusLabel={snapshot.statusLabel}
-            voiceAvailable={false}
-            onVoiceStart={unavailableVoiceAction}
-            onVoiceStop={unavailableVoiceAction}
+            voiceAvailable={controller.voiceAvailable}
+            onVoiceStart={controller.onVoiceStart}
+            onVoiceStop={controller.onVoiceStop}
           />
         </div>
       </section>
@@ -67,6 +84,20 @@ export function NovaMindApp({ state }: NovaMindAppProps) {
       >
         <ConversationField messages={visibleMessages} />
       </section>
+
+      <ComposerMembrane
+        draft={state.draft}
+        voiceReview={state.voiceReview}
+        privacyClass={snapshot.privacyClass}
+        cloudConsentRequired={snapshot.cloudConsentRequired}
+        busy={snapshot.phase === "processing"}
+        voiceAvailable={controller.voiceAvailable}
+        onDraftChange={controller.onDraftChange}
+        onSubmitText={controller.onSubmitText}
+        onSubmitVoiceReview={controller.onSubmitVoiceReview}
+        onDiscardVoiceReview={controller.onDiscardVoiceReview}
+        onCancel={controller.onCancel}
+      />
 
       <div className="nova-announcer">
         <StatusAnnouncer
