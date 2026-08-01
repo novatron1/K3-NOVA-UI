@@ -22,6 +22,7 @@ export function ConversationField({ messages }: ConversationFieldProps) {
           key={message.id}
           className={`conversation-message conversation-message--${message.author}`}
           data-author={message.author}
+          data-message-id={message.id}
           aria-label={messageLabel(message.author)}
         >
           <MessageContent text={message.text} />

@@ -346,3 +346,55 @@ test("rendered normal and approval phases meet WCAG AA color contrast", async ({
   const approve = dialog.getByRole("button", { name: "Approve" });
   await expectRenderedTextContrast(approve, approve);
 });
+
+test("multiple fake-host submissions retain distinct inert messages", async ({ page }) => {
+  const duplicateKeyErrors: string[] = [];
+  page.on("console", (message) => {
+    if (
+      message.type() === "error"
+      && message.text().includes("same key")
+      && message.text().includes("fake-demo-user-message")
+    ) {
+      duplicateKeyErrors.push(message.text());
+    }
+  });
+  await page.goto("/");
+
+  const submitMessage = async (text: string): Promise<void> => {
+    const composer = page.getByRole("textbox", { name: "Message" });
+    await composer.fill(text);
+    const send = page.getByRole("button", { name: "Send message" });
+    await expect(send).toBeEnabled();
+    await send.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("alertdialog", {
+      name: "Permission decision required",
+    })).toBeVisible();
+  };
+
+  await submitMessage("First inert browser message");
+  await expect(page.getByRole("button", { name: "Approve" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("alertdialog", {
+    name: "Permission decision required",
+  })).toBeHidden();
+
+  await submitMessage("Second inert browser message");
+  const userMessages = page.locator('[data-author="user"]');
+  await expect(userMessages).toHaveCount(2);
+  await expect(userMessages.nth(0)).toHaveText("First inert browser message");
+  await expect(userMessages.nth(1)).toHaveText("Second inert browser message");
+  expect(await userMessages.evaluateAll((messages) => messages.map(
+    (message) => message.getAttribute("data-message-id"),
+  ))).toEqual([
+    "fake-demo-user-message-1",
+    "fake-demo-user-message-2",
+  ]);
+  expect.soft(duplicateKeyErrors).toEqual([]);
+  await expect(page.getByRole("button", { name: "Approve" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect.soft(page.getByRole("alertdialog", {
+    name: "Permission decision required",
+  })).toBeHidden();
+  await expect(userMessages).toHaveCount(2);
+});
