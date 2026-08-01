@@ -49,6 +49,33 @@ const ORGAN_IDS: readonly LivingOrganId[] = [
 
 const ALL_ORGANS = new Set<LivingOrganId>(ORGAN_IDS);
 
+const CONSENT_CASES = [
+  {
+    name: "not required",
+    required: false,
+    granted: false,
+    primary: "Privacy: restricted | Cloud consent: Not required",
+    state: "consent_not_required",
+    tone: "available",
+  },
+  {
+    name: "required and not granted",
+    required: true,
+    granted: false,
+    primary: "Privacy: restricted | Cloud consent: Required, not granted",
+    state: "consent_required_not_granted",
+    tone: "consent-warning",
+  },
+  {
+    name: "required and granted",
+    required: true,
+    granted: true,
+    primary: "Privacy: restricted | Cloud consent: Required, granted",
+    state: "consent_granted",
+    tone: "available",
+  },
+] as const;
+
 const ADVERSARIAL_STATE_CASES = [
   {
     name: "contract",
@@ -63,6 +90,7 @@ const ADVERSARIAL_STATE_CASES = [
     },
     primary: "Run phase: Processing",
     state: "processing",
+    initialNote: "Host note (non-authoritative): Run completed successfully",
     expandedNote: "Host note (non-authoritative): Completion verified by label",
   },
   {
@@ -78,6 +106,7 @@ const ADVERSARIAL_STATE_CASES = [
     },
     primary: "Evidence state: Pending",
     state: "pending",
+    initialNote: "Host note (non-authoritative): Evidence verified",
     expandedNote: "Host note (non-authoritative): Evidence verification complete",
   },
   {
@@ -93,6 +122,7 @@ const ADVERSARIAL_STATE_CASES = [
     },
     primary: "Isolation state: Degraded",
     state: "degraded",
+    initialNote: "Host note (non-authoritative): Strong isolation verified",
     expandedNote: "Host note (non-authoritative): Strong isolation guaranteed",
   },
   {
@@ -108,6 +138,7 @@ const ADVERSARIAL_STATE_CASES = [
     },
     primary: "Rollback state: Checkpointed",
     state: "checkpointed",
+    initialNote: "Host note (non-authoritative): Rollback verified",
     expandedNote: "Host note (non-authoritative): Rollback verification complete",
   },
 ] as const satisfies readonly {
@@ -117,6 +148,7 @@ const ADVERSARIAL_STATE_CASES = [
   readonly changed: Partial<SanitizedHostSnapshot>;
   readonly primary: string;
   readonly state: string;
+  readonly initialNote: string;
   readonly expandedNote: string;
 }[];
 
@@ -212,6 +244,67 @@ describe("LivingOrgans", () => {
     expect(privacy).toHaveTextContent("Cloud consent granted: Yes");
   });
 
+  it.each(CONSENT_CASES)(
+    "shows $name cloud consent in the primary privacy state",
+    ({ granted, primary, required, state, tone }) => {
+      const { container } = renderOrgans(makeSnapshot({
+        privacyClass: "restricted",
+        cloudConsentRequired: required,
+        cloudConsentGranted: granted,
+      }), new Set());
+      const privacy = organ(container, "privacy");
+      const control = within(privacy).getByRole("button");
+
+      expect(privacy).toHaveAttribute("data-organ-state", state);
+      expect(privacy).toHaveAttribute("data-organ-tone", tone);
+      expect(within(privacy).getByText(primary, {
+        selector: ".living-organ-summary",
+      })).toBeVisible();
+      expect(control).toHaveAccessibleName(`Privacy and consent ${primary}`);
+    },
+  );
+
+  it("pulses only privacy when canonical cloud consent changes", () => {
+    const { container, rerender } = renderOrgans(makeSnapshot({
+      privacyClass: "restricted",
+      cloudConsentRequired: false,
+      cloudConsentGranted: false,
+    }), new Set());
+    const initialPulses = new Map(
+      ORGAN_IDS.map((organId) => [
+        organId,
+        organ(container, organId).querySelector("[data-organ-pulse]"),
+      ]),
+    );
+
+    rerender(
+      <LivingOrgans
+        snapshot={makeSnapshot({
+          privacyClass: "restricted",
+          cloudConsentRequired: true,
+          cloudConsentGranted: false,
+        })}
+        openOrgans={new Set()}
+        onToggle={() => {}}
+      />,
+    );
+
+    const privacy = organ(container, "privacy");
+    const privacyPulse = privacy.querySelector("[data-organ-pulse]");
+    expect(privacy).toHaveAttribute(
+      "data-organ-state",
+      "consent_required_not_granted",
+    );
+    expect(privacy).toHaveAttribute("data-organ-tone", "consent-warning");
+    expect(privacyPulse).not.toBe(initialPulses.get("privacy"));
+    expect(privacyPulse).toHaveAttribute("data-motion-revision", "1");
+
+    for (const organId of ORGAN_IDS.filter((value) => value !== "privacy")) {
+      expect(organ(container, organId).querySelector("[data-organ-pulse]"))
+        .toBe(initialPulses.get(organId));
+    }
+  });
+
   it("keeps unavailable strong isolation gray and locked", () => {
     const onToggle = vi.fn();
     const { container } = render(
@@ -237,14 +330,29 @@ describe("LivingOrgans", () => {
     expect(control).toHaveAttribute("aria-expanded", "false");
     expect(within(isolation).getByText("Isolation state: Unavailable"))
       .toBeVisible();
-    expect(isolation).not.toHaveTextContent("Strong isolation unavailable");
+    const isolationPanel = document.getElementById(
+      control.getAttribute("aria-controls") ?? "",
+    );
+    expect(isolationPanel).toHaveAttribute("hidden");
+    expect(isolationPanel).not.toBeVisible();
+    expect(within(isolationPanel as HTMLElement).getByText(
+      "Host note (non-authoritative): Strong isolation unavailable",
+    )).not.toBeVisible();
     fireEvent.click(control);
     expect(onToggle).not.toHaveBeenCalled();
   });
 
   it.each(ADVERSARIAL_STATE_CASES)(
     "keeps $name primary state canonical when its host label is deceptive",
-    ({ changed, expandedNote, initial, organId, primary, state }) => {
+    ({
+      changed,
+      expandedNote,
+      initial,
+      initialNote,
+      organId,
+      primary,
+      state,
+    }) => {
       const { container, rerender } = renderOrgans(
         makeSnapshot(initial),
         new Set(),
@@ -260,7 +368,7 @@ describe("LivingOrgans", () => {
         selector: ".living-organ-summary",
       })).toBeVisible();
       expect(control).toHaveAccessibleName(new RegExp(primary));
-      expect(card).not.toHaveTextContent(expandedNote);
+      expect(within(card).getByText(initialNote)).not.toBeVisible();
 
       rerender(
         <LivingOrgans
@@ -281,6 +389,61 @@ describe("LivingOrgans", () => {
       expect(card.querySelector("[data-organ-pulse]")).toBe(pulse);
     },
   );
+
+  it("keeps every aria-controls target mounted and hidden until expanded", () => {
+    const snapshot = makeSnapshot({
+      isolation: "unavailable",
+      isolationLabel: "Locked isolation note",
+      ledgerSummary: ["Stable sanitized ledger detail"],
+    });
+    const { container, rerender } = renderOrgans(
+      snapshot,
+      new Set<LivingOrganId>(["isolation"]),
+    );
+    const panels = new Map<LivingOrganId, HTMLElement>();
+    const pulses = new Map<LivingOrganId, Element | null>();
+
+    for (const organId of ORGAN_IDS) {
+      const card = organ(container, organId);
+      const control = within(card).getByRole("button");
+      const panel = document.getElementById(
+        control.getAttribute("aria-controls") ?? "",
+      );
+      if (!(panel instanceof HTMLElement)) {
+        throw new Error(`Missing controlled panel for ${organId}.`);
+      }
+
+      expect(panel.tagName).toBe("SECTION");
+      expect(panel).toHaveAttribute("hidden");
+      expect(panel).not.toBeVisible();
+      panels.set(organId, panel);
+      pulses.set(organId, card.querySelector("[data-organ-pulse]"));
+    }
+    expect(screen.queryByRole("region", { name: /ledger timeline/i }))
+      .not.toBeInTheDocument();
+
+    rerender(
+      <LivingOrgans
+        snapshot={snapshot}
+        openOrgans={new Set<LivingOrganId>(["ledger", "isolation"])}
+        onToggle={() => {}}
+      />,
+    );
+
+    const ledgerPanel = panels.get("ledger");
+    expect(document.getElementById(ledgerPanel?.id ?? "")).toBe(ledgerPanel);
+    expect(ledgerPanel).not.toHaveAttribute("hidden");
+    expect(ledgerPanel).toBeVisible();
+    expect(screen.getByRole("region", { name: /ledger timeline/i }))
+      .toHaveTextContent("Stable sanitized ledger detail");
+    expect(panels.get("isolation")).toHaveAttribute("hidden");
+    expect(panels.get("isolation")).not.toBeVisible();
+
+    for (const organId of ORGAN_IDS) {
+      expect(organ(container, organId).querySelector("[data-organ-pulse]"))
+        .toBe(pulses.get(organId));
+    }
+  });
 
   it("distinguishes pending failed blocked and verified evidence", () => {
     const states = [

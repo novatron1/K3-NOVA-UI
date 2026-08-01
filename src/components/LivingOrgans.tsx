@@ -22,7 +22,7 @@ interface OrganDetail {
 
 interface OrganView {
   readonly state: string;
-  readonly tone: "available" | "unavailable";
+  readonly tone: "available" | "consent-warning" | "unavailable";
   readonly label: string;
   readonly details: readonly OrganDetail[];
   readonly summaryItems: readonly string[];
@@ -77,6 +77,37 @@ function firstSummary(
   unavailableLabel: string,
 ): string {
   return summary[0] ?? unavailableLabel;
+}
+
+function cloudConsentState(
+  required: boolean,
+  granted: boolean,
+): {
+  readonly label: string;
+  readonly state: string;
+  readonly tone: "available" | "consent-warning";
+} {
+  if (!required) {
+    return {
+      label: "Not required",
+      state: "consent_not_required",
+      tone: "available",
+    };
+  }
+
+  if (!granted) {
+    return {
+      label: "Required, not granted",
+      state: "consent_required_not_granted",
+      tone: "consent-warning",
+    };
+  }
+
+  return {
+    label: "Required, granted",
+    state: "consent_granted",
+    tone: "available",
+  };
 }
 
 const ORGAN_DESCRIPTORS: readonly OrganDescriptor[] = Object.freeze([
@@ -167,28 +198,39 @@ const ORGAN_DESCRIPTORS: readonly OrganDescriptor[] = Object.freeze([
   {
     id: "privacy",
     title: "Privacy and consent",
-    select: (snapshot) => ({
-      state: snapshot.privacyClass,
-      tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
-      label: `Privacy: ${snapshot.privacyClass}`,
-      details: [
-        { label: "Privacy classification", value: snapshot.privacyClass },
-        {
-          label: "Cloud consent required",
-          value: snapshot.cloudConsentRequired ? "Yes" : "No",
-        },
-        {
-          label: "Cloud consent granted",
-          value: snapshot.cloudConsentGranted ? "Yes" : "No",
-        },
-      ],
-      summaryItems: [],
-      motionTokens: [
-        snapshot.privacyClass,
-        snapshot.cloudConsentRequired ? "required" : "not-required",
-        snapshot.cloudConsentGranted ? "granted" : "not-granted",
-      ],
-    }),
+    select: (snapshot) => {
+      const consent = cloudConsentState(
+        snapshot.cloudConsentRequired,
+        snapshot.cloudConsentGranted,
+      );
+
+      return {
+        state: consent.state,
+        tone: consent.tone === "consent-warning"
+          ? "consent-warning"
+          : snapshot.phase === "unavailable"
+            ? "unavailable"
+            : "available",
+        label: `Privacy: ${snapshot.privacyClass} | Cloud consent: ${consent.label}`,
+        details: [
+          { label: "Privacy classification", value: snapshot.privacyClass },
+          {
+            label: "Cloud consent required",
+            value: snapshot.cloudConsentRequired ? "Yes" : "No",
+          },
+          {
+            label: "Cloud consent granted",
+            value: snapshot.cloudConsentGranted ? "Yes" : "No",
+          },
+        ],
+        summaryItems: [],
+        motionTokens: [
+          snapshot.privacyClass,
+          snapshot.cloudConsentRequired ? "required" : "not-required",
+          snapshot.cloudConsentGranted ? "granted" : "not-granted",
+        ],
+      };
+    },
   },
   {
     id: "budgets",
@@ -320,6 +362,7 @@ class OrganCard extends Component<OrganCardProps, OrganCardState> {
         <button
           id={controlId}
           type="button"
+          aria-label={`${descriptor.title} ${view.label}`}
           aria-controls={panelId}
           aria-expanded={expanded}
           aria-disabled={locked ? "true" : undefined}
@@ -339,26 +382,22 @@ class OrganCard extends Component<OrganCardProps, OrganCardState> {
           />
         </button>
 
-        {expanded
-          ? (
-              <section id={panelId} aria-labelledby={controlId}>
-                {view.details.map((detail) => (
-                  <p key={detail.label}>
-                    {`${detail.label}: ${detail.value}`}
-                  </p>
-                ))}
-                {view.summaryItems.length === 0
-                  ? null
-                  : (
-                      <ul>
-                        {view.summaryItems.map((item, index) => (
-                          <li key={`${index}:${item}`}>{item}</li>
-                        ))}
-                      </ul>
-                    )}
-              </section>
-            )
-          : null}
+        <section id={panelId} aria-labelledby={controlId} hidden={!expanded}>
+          {view.details.map((detail) => (
+            <p key={detail.label}>
+              {`${detail.label}: ${detail.value}`}
+            </p>
+          ))}
+          {view.summaryItems.length === 0
+            ? null
+            : (
+                <ul>
+                  {view.summaryItems.map((item, index) => (
+                    <li key={`${index}:${item}`}>{item}</li>
+                  ))}
+                </ul>
+              )}
+        </section>
       </article>
     );
   }

@@ -320,6 +320,15 @@
   box-shadow: none;
 }
 
+:global(.living-organ[data-organ-tone="consent-warning"]) {
+  border-color: color-mix(in srgb, var(--nova-approval) 62%, transparent);
+  box-shadow: inset 0 0 1.2rem color-mix(in srgb, var(--nova-approval) 9%, transparent);
+}
+
+:global(.living-organ[data-organ-tone="consent-warning"] .living-organ-signal) {
+  color: var(--nova-approval);
+}
+
 @keyframes nova-organ-trusted-pulse {
   0% {
     box-shadow: 0 0 0 0 currentColor;
