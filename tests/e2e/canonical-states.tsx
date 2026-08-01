@@ -8,8 +8,17 @@ import type {
 } from "../../src/domain/presentation-types";
 import type { PresentationState } from "../../src/state/presentation-reducer";
 import { createInitialPresentationState } from "../../src/state/presentation-reducer";
-import { makeSnapshot } from "../../src/test/fixtures";
+import {
+  makeSnapshot,
+  SECURITY_BOUNDARY_CANONICAL_FIXTURES,
+  type SecurityBoundaryCanonicalFixture,
+} from "../../src/test/fixtures";
 import "../../src/theme/global.css";
+
+interface CanonicalScenario {
+  readonly phase: HostRunPhase;
+  readonly securityFixture?: SecurityBoundaryCanonicalFixture;
+}
 
 const CANONICAL_PHASES: readonly HostRunPhase[] = Object.freeze([
   "idle",
@@ -22,6 +31,16 @@ const CANONICAL_PHASES: readonly HostRunPhase[] = Object.freeze([
   "paused",
   "cancelled",
   "unavailable",
+]);
+
+const CANONICAL_SCENARIOS: readonly CanonicalScenario[] = Object.freeze([
+  ...SECURITY_BOUNDARY_CANONICAL_FIXTURES.map(
+    (securityFixture): CanonicalScenario => Object.freeze({
+      phase: securityFixture.snapshot.phase,
+      securityFixture,
+    }),
+  ),
+  ...CANONICAL_PHASES.map((phase): CanonicalScenario => Object.freeze({ phase })),
 ]);
 
 function canonicalTrustTone(phase: HostRunPhase): TrustTone {
@@ -40,7 +59,17 @@ function canonicalTrustTone(phase: HostRunPhase): TrustTone {
   return "trusted_local";
 }
 
-function canonicalState(phase: HostRunPhase): PresentationState {
+function canonicalState(scenario: CanonicalScenario): PresentationState {
+  if (scenario.securityFixture !== undefined) {
+    return {
+      ...createInitialPresentationState(),
+      snapshot: scenario.securityFixture.snapshot,
+      sessionState: scenario.securityFixture.sessionState,
+      sessionError: scenario.securityFixture.sessionError,
+    };
+  }
+
+  const { phase } = scenario;
   const unavailable = phase === "unavailable";
   const explicitCloud = phase === "processing";
   return {
@@ -67,11 +96,15 @@ function canonicalState(phase: HostRunPhase): PresentationState {
 
 export function CanonicalStateSequence() {
   const [phaseIndex, setPhaseIndex] = useState(0);
-  const phase = CANONICAL_PHASES[phaseIndex] ?? "idle";
+  const scenario = CANONICAL_SCENARIOS[phaseIndex] ?? CANONICAL_SCENARIOS[0];
+  if (scenario === undefined) {
+    throw new Error("Canonical e2e scenario is unavailable.");
+  }
+  const phase = scenario.phase;
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
-      setPhaseIndex((current) => (current + 1) % CANONICAL_PHASES.length);
+      setPhaseIndex((current) => (current + 1) % CANONICAL_SCENARIOS.length);
     }, 5_000);
     return () => {
       window.clearInterval(intervalId);
@@ -82,8 +115,9 @@ export function CanonicalStateSequence() {
     <div
       data-canonical-phase={phase}
       data-canonical-trust-tone={canonicalTrustTone(phase)}
+      data-canonical-scenario={scenario.securityFixture?.scenario ?? phase}
     >
-      <NovaMindApp state={canonicalState(phase)} />
+      <NovaMindApp state={canonicalState(scenario)} />
     </div>
   );
 }
