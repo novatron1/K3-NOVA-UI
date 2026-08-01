@@ -36,6 +36,17 @@ test("desktop centers core and keeps organs on the orbital rail", async ({ page 
   expect(lastBox?.x).toBeGreaterThan((coreBox?.x ?? 0) + (coreBox?.width ?? 0));
 });
 
+test("short desktop keeps every organ control reachable", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 700 });
+  await page.goto("/");
+
+  const organControls = page.locator(".living-organ button");
+  await expect(organControls).toHaveCount(10);
+  for (let index = 0; index < 10; index += 1) {
+    await boxWithinViewport(organControls.nth(index), page);
+  }
+});
+
 test("tablet prioritizes conversation and collapses the organ rail", async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 900 });
   await page.goto("/");
