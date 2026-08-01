@@ -3,12 +3,29 @@ import type {
   TrustedPermissionGate,
 } from "../domain/presentation-types";
 
-export interface SecurityBoundaryCanonicalFixture {
+interface SnapshotSecurityBoundaryCanonicalFixture {
   readonly scenario: "private-cloud-consent" | "timeout-rollback-failure";
   readonly snapshot: SanitizedHostSnapshot;
   readonly sessionState: "connected" | "failed";
   readonly sessionError: string | null;
 }
+
+interface SyntheticHiddenReasoningHostEvent {
+  readonly type: "snapshot";
+  readonly snapshot: SanitizedHostSnapshot & {
+    readonly hiddenReasoning: string;
+  };
+}
+
+interface AttemptedHostSecurityBoundaryCanonicalFixture {
+  readonly scenario: "hidden-reasoning-attempt";
+  readonly executionMarker: string;
+  readonly attemptedHostEvent: SyntheticHiddenReasoningHostEvent;
+}
+
+export type SecurityBoundaryCanonicalFixture =
+  | SnapshotSecurityBoundaryCanonicalFixture
+  | AttemptedHostSecurityBoundaryCanonicalFixture;
 
 export function makeSnapshot(
   overrides: Partial<SanitizedHostSnapshot> = {},
@@ -55,8 +72,25 @@ const SYNTHETIC_CLOUD_CONSENT_GATE: TrustedPermissionGate = Object.freeze({
   choices: Object.freeze(["approve", "deny", "cancel"] as const),
 } satisfies TrustedPermissionGate);
 
+const SYNTHETIC_HIDDEN_REASONING_HOST_EVENT = Object.freeze({
+  type: "snapshot",
+  snapshot: Object.freeze({
+    ...makeSnapshot({
+      runId: "synthetic-hidden-reasoning-attempt-5e6f",
+      phase: "processing",
+      statusLabel: "Synthetic hidden reasoning attempted",
+    }),
+    hiddenReasoning: "SYNTHETIC_HIDDEN_REASONING_5E6F",
+  }),
+} satisfies SyntheticHiddenReasoningHostEvent);
+
 export const SECURITY_BOUNDARY_CANONICAL_FIXTURES: readonly SecurityBoundaryCanonicalFixture[] =
   Object.freeze([
+    Object.freeze({
+      scenario: "hidden-reasoning-attempt",
+      executionMarker: "SYNTHETIC_HIDDEN_REASONING_ATTEMPT_EXECUTED_24B8",
+      attemptedHostEvent: SYNTHETIC_HIDDEN_REASONING_HOST_EVENT,
+    }),
     Object.freeze({
       scenario: "private-cloud-consent",
       snapshot: makeSnapshot({

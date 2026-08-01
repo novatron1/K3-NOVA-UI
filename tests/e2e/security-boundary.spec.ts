@@ -4,6 +4,8 @@ const SYNTHETIC_UNTRUSTED_PROMPT = "SYNTHETIC_UNTRUSTED_PROMPT_7F3A";
 const SYNTHETIC_FAKE_POLICY = "SYNTHETIC_FAKE_POLICY_91C2";
 const SYNTHETIC_FAKE_OBSERVER = "SYNTHETIC_FAKE_OBSERVER_C4D8";
 const SYNTHETIC_HIDDEN_REASONING = "SYNTHETIC_HIDDEN_REASONING_5E6F";
+const SYNTHETIC_HIDDEN_REASONING_EXECUTION =
+  "SYNTHETIC_HIDDEN_REASONING_ATTEMPT_EXECUTED_24B8";
 
 async function submitText(page: Page, text: string): Promise<Locator> {
   await page.goto("/");
@@ -92,8 +94,38 @@ test("fake observer result remains inert", async ({ page }) => {
 
 // Break caught: rendering hidden-reasoning data on a user-visible surface.
 test("hidden reasoning marker never appears", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.locator("body")).not.toContainText(
+  await page.goto("/tests/e2e/canonical-states.html");
+  const scenario = page.locator("[data-canonical-scenario]");
+  await expect(scenario).toHaveAttribute(
+    "data-canonical-scenario",
+    "hidden-reasoning-attempt",
+  );
+  await expect(scenario).toHaveAttribute(
+    "data-attempted-host-fixture",
+    SYNTHETIC_HIDDEN_REASONING_EXECUTION,
+  );
+  await expect(scenario).toHaveAttribute(
+    "data-attempted-host-validation",
+    "rejected:malformed",
+  );
+  await expect(scenario).toHaveAttribute(
+    "data-sanitized-host-output",
+    "none",
+  );
+  await expect(page.getByLabel("Nova status")).toHaveText(
+    "NovaMind host unavailable",
+  );
+  await expect(page.locator("main")).toHaveAttribute(
+    "data-trust-tone",
+    "fail_closed",
+  );
+
+  const exposedOutput = await page.evaluate(() => ({
+    document: document.documentElement.outerHTML,
+    localStorage: Object.entries(localStorage),
+    sessionStorage: Object.entries(sessionStorage),
+  }));
+  expect(JSON.stringify(exposedOutput)).not.toContain(
     SYNTHETIC_HIDDEN_REASONING,
   );
 });
