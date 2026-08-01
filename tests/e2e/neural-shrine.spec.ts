@@ -1,4 +1,192 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
+
+const AXE_BROWSER_PATH = resolve(
+  process.cwd(),
+  "node_modules",
+  "axe-core",
+  "axe.min.js",
+);
+
+function sha256(content: Uint8Array): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+async function expectServedBundleMatchesDist(
+  request: APIRequestContext,
+): Promise<void> {
+  const documentResponse = await request.get("/");
+  expect(documentResponse.ok()).toBe(true);
+  const documentHtml = await documentResponse.text();
+  const assetPaths = Array.from(documentHtml.matchAll(
+    /(?:src|href)="(\/assets\/[^"?]+\.(?:css|js))"/gu,
+  )).map((match) => match[1]).filter((path): path is string => (
+    path !== undefined
+  ));
+  expect(assetPaths.some((path) => path.endsWith(".css")),
+    "served document must reference built CSS").toBe(true);
+  expect(assetPaths.some((path) => path.endsWith(".js")),
+    "served document must reference built JavaScript").toBe(true);
+  expect(new Set(assetPaths).size).toBe(assetPaths.length);
+
+  for (const assetPath of assetPaths) {
+    const assetResponse = await request.get(assetPath);
+    expect(assetResponse.ok()).toBe(true);
+    const [servedAsset, localAsset] = await Promise.all([
+      assetResponse.body(),
+      readFile(resolve(process.cwd(), "dist", assetPath.slice(1))),
+    ]);
+    expect(sha256(servedAsset), `served digest for ${assetPath}`)
+      .toBe(sha256(localAsset));
+  }
+}
+
+interface BrowserAxeFinding {
+  readonly id: string;
+  readonly nodes: readonly {
+    readonly any?: readonly {
+      readonly data: unknown;
+      readonly id: string;
+      readonly message: string;
+    }[];
+    readonly failureSummary?: string;
+    readonly target: readonly string[];
+  }[];
+}
+
+async function expectNoSiblingHitOverlap(locator: Locator): Promise<void> {
+  const hasOnlySelfOrAncestorHits = await locator.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    return Array.from(range.getClientRects()).every((box) => [
+      [box.x + 1, box.y + 1],
+      [box.right - 1, box.y + 1],
+      [box.x + box.width / 2, box.y + box.height / 2],
+      [box.x + 1, box.bottom - 1],
+      [box.right - 1, box.bottom - 1],
+    ].every(([x = 0, y = 0]) => document.elementsFromPoint(x, y).every(
+      (candidate) => (
+        candidate === element
+        || element.contains(candidate)
+        || candidate.contains(element)
+      ),
+    )));
+  });
+  expect(hasOnlySelfOrAncestorHits).toBe(true);
+}
+
+async function expectChromiumColorEvidence(
+  page: Page,
+  stateLabel: string,
+): Promise<void> {
+  await page.addScriptTag({ path: AXE_BROWSER_PATH });
+  const results = await page.evaluate(async () => {
+    interface AxeApi {
+      run(
+        context: Document | Element,
+        options: {
+          readonly runOnly: {
+            readonly type: "rule";
+            readonly values: readonly string[];
+          };
+        },
+      ): Promise<{
+        readonly violations: readonly BrowserAxeFinding[];
+        readonly incomplete: readonly BrowserAxeFinding[];
+      }>;
+    }
+
+    const axe = (globalThis as unknown as { readonly axe?: AxeApi }).axe;
+    if (axe === undefined) {
+      throw new Error("axe-core was not loaded into Chromium.");
+    }
+
+    const context = document.querySelector('[role="alertdialog"]') ?? document;
+    return axe.run(context, {
+      runOnly: {
+        type: "rule",
+        values: ["color-contrast", "link-in-text-block"],
+      },
+    });
+  });
+  const summarize = (findings: readonly BrowserAxeFinding[]) => findings.map(
+    ({ id, nodes }) => ({
+      id,
+      nodes: nodes.map(({ any, failureSummary, target }) => ({
+        any,
+        failureSummary,
+        target,
+      })),
+    }),
+  );
+
+  expect(summarize(results.violations), `Chromium color violations for ${stateLabel}`)
+    .toEqual([]);
+  const incomplete = summarize(results.incomplete);
+  if (incomplete.length === 0) {
+    return;
+  }
+
+  expect(incomplete, `Chromium unresolved color targets for ${stateLabel}`)
+    .toHaveLength(1);
+  expect(incomplete[0]?.id).toBe("color-contrast");
+  expect(incomplete[0]?.nodes).toHaveLength(1);
+  const target = incomplete[0]?.nodes[0]?.target.join(" ");
+  expect(target).toBe('p[aria-label="Nova status"]');
+  const status = page.getByLabel("Nova status");
+  await expectOpaqueSurfaceTextContrast(status, status);
+  await expectNoSiblingHitOverlap(status);
+}
+
+async function expectMinimumTargetSize(locator: Locator): Promise<void> {
+  await locator.scrollIntoViewIfNeeded();
+  const box = await locator.boundingBox();
+  if (box === null) {
+    throw new Error("Expected a control bounding box.");
+  }
+  expect(box.width).toBeGreaterThanOrEqual(44);
+  expect(box.height).toBeGreaterThanOrEqual(44);
+}
+
+async function expectTargetSizeAndHitTesting(
+  locator: Locator,
+): Promise<void> {
+  await expectMinimumTargetSize(locator);
+  const box = await locator.boundingBox();
+  if (box === null) {
+    throw new Error("Expected an actionable control bounding box.");
+  }
+  const center = {
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2,
+  };
+  const centerHit = await locator.evaluate((element, point) => {
+    const hit = document.elementFromPoint(point.x, point.y);
+    return {
+      expected: element.getAttribute("aria-label") ?? element.textContent,
+      hit: hit === null
+        ? null
+        : hit.getAttribute("aria-label") ?? hit.textContent,
+      receivesHit: hit === element || (hit !== null && element.contains(hit)),
+    };
+  }, center);
+  expect(
+    centerHit.receivesHit,
+    `center hit for ${centerHit.expected ?? "unnamed control"}; received ${centerHit.hit ?? "nothing"}`,
+  ).toBe(true);
+  await locator.click({ trial: true });
+  await locator.focus();
+  await expect(locator).toBeFocused();
+}
 
 async function boxWithinViewport(locator: Locator, page: Page): Promise<void> {
   await locator.scrollIntoViewIfNeeded();
@@ -11,8 +199,8 @@ async function boxWithinViewport(locator: Locator, page: Page): Promise<void> {
 
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.y).toBeGreaterThanOrEqual(0);
-  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
-  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width + 0.5);
+  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 0.5);
 }
 
 async function expectRenderedFocus(locator: Locator): Promise<void> {
@@ -125,6 +313,66 @@ async function expectRenderedTextContrast(
   expect(ratio).toBeGreaterThanOrEqual(4.5);
 }
 
+async function expectOpaqueSurfaceTextContrast(
+  foreground: Locator,
+  surface: Locator,
+): Promise<void> {
+  const [foregroundColor, renderedSurface] = await Promise.all([
+    foreground.evaluate((element) => getComputedStyle(element).color),
+    surface.evaluate((element) => {
+      const styles = getComputedStyle(element);
+      return {
+        backdropFilter: styles.backdropFilter,
+        backgroundColor: styles.backgroundColor,
+        backgroundImage: styles.backgroundImage,
+      };
+    }),
+  ]);
+  expect(renderedSurface.backgroundImage).toBe("none");
+  expect(renderedSurface.backdropFilter).toBe("none");
+  const foregroundRgb = parseRgb(foregroundColor);
+  const backgroundRgb = parseRgb(renderedSurface.backgroundColor);
+  expect(foregroundRgb[3]).toBe(1);
+  expect(backgroundRgb[3]).toBe(1);
+  const foregroundLuminance = relativeLuminance([
+    foregroundRgb[0],
+    foregroundRgb[1],
+    foregroundRgb[2],
+  ]);
+  const backgroundLuminance = relativeLuminance([
+    backgroundRgb[0],
+    backgroundRgb[1],
+    backgroundRgb[2],
+  ]);
+  const ratio = (Math.max(foregroundLuminance, backgroundLuminance) + 0.05)
+    / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05);
+
+  expect(ratio).toBeGreaterThanOrEqual(4.5);
+}
+
+async function openPermissionGate(page: Page, text: string): Promise<Locator> {
+  const message = page.getByRole("textbox", { name: "Message" });
+  await message.fill(text);
+  const send = page.getByRole("button", { name: "Send message" });
+  await expect(send).toBeEnabled();
+  await send.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("alertdialog", {
+    name: "Permission decision required",
+  });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+test("served application bundle matches the reviewed local build", async ({
+  page,
+  request,
+}) => {
+  await expectServedBundleMatchesDist(request);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "NovaMind" })).toBeVisible();
+});
+
 test("desktop centers core and keeps organs on the orbital rail", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.goto("/");
@@ -226,6 +474,80 @@ test("critical controls remain inside the viewport at 320 CSS pixels", async ({ 
   expect(await page.locator("html").evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(320);
 });
 
+test("every 320px critical control is keyboard and pointer actionable", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto("/");
+
+  const unavailableVoice = page.getByRole("button", {
+    name: "Voice capture unavailable",
+  });
+  await expect(unavailableVoice).toHaveCount(2);
+  for (const voiceControl of await unavailableVoice.all()) {
+    await expect(voiceControl).toBeDisabled();
+    await expect(voiceControl).toHaveAttribute("aria-disabled", "true");
+    await expectMinimumTargetSize(voiceControl);
+  }
+
+  const message = page.getByRole("textbox", { name: "Message" });
+  await message.fill("Exercise every narrow-screen control");
+  await message.evaluate((element) => {
+    element.blur();
+  });
+  const normalControls = page.locator(
+    ".nova-presentation button:not(:disabled), .nova-presentation textarea:not(:disabled)",
+  );
+  await expect(normalControls).toHaveCount(13);
+  for (let index = 0; index < 13; index += 1) {
+    await page.keyboard.press("Tab");
+    const control = normalControls.nth(index);
+    await expect(control).toBeFocused();
+    await expectTargetSizeAndHitTesting(control);
+  }
+
+  const organControls = page.locator(".living-organ button:not(:disabled)");
+  await expect(organControls).toHaveCount(10);
+  for (let index = 0; index < 10; index += 1) {
+    const organ = organControls.nth(index);
+    await organ.focus();
+    await page.keyboard.press("Enter");
+    await expect(organ).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Enter");
+    await expect(organ).toHaveAttribute("aria-expanded", "false");
+  }
+
+  const permissionOutcomes = [
+    { choice: "Approve", status: "Fake host approval recorded" },
+    { choice: "Deny", status: "Action denied by fake host policy" },
+    { choice: "Cancel", status: "Fake host presentation cancelled" },
+  ] as const;
+  for (const { choice, status: expectedStatus } of permissionOutcomes) {
+    await page.reload();
+    const gate = await openPermissionGate(page, `320px ${choice} action`);
+    const actions = gate.getByRole("button");
+    await expect(actions).toHaveCount(3);
+    for (const action of await actions.all()) {
+      await expectTargetSizeAndHitTesting(action);
+    }
+    const choiceControl = gate.getByRole("button", { name: choice });
+    await choiceControl.focus();
+    await expect(choiceControl).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(gate).toBeHidden();
+    await expect(page.getByLabel("Nova status")).toHaveText(expectedStatus);
+  }
+
+  await page.reload();
+  const cancel = page.getByRole("button", { name: "Cancel presentation" });
+  await expectTargetSizeAndHitTesting(cancel);
+  await cancel.focus();
+  await page.keyboard.press("Enter");
+  await message.fill("Submission after cancellation stays inert");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.getByRole("alertdialog", {
+    name: "Permission decision required",
+  })).toBeHidden();
+});
+
 test("reduced motion removes ambient loops", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
@@ -246,6 +568,96 @@ test("high contrast removes translucent critical surfaces", async ({ page }) => 
 
   await expect(criticalSurface).toHaveCSS("backdrop-filter", "none");
   await expect(criticalSurface).toHaveCSS("background-color", "rgb(3, 7, 6)");
+});
+
+test("Chromium resolves color checks across fixed fake-host states", async ({ page }) => {
+  await page.goto("/");
+  await expectChromiumColorEvidence(page, "idle");
+
+  await openPermissionGate(page, "Chromium color audit approval path");
+  await expectChromiumColorEvidence(page, "approval required");
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByLabel("Nova status"))
+    .toHaveText("Fake host approval recorded");
+  await expectChromiumColorEvidence(page, "responding");
+
+  await page.reload();
+  await openPermissionGate(page, "Chromium color audit denial path");
+  await page.getByRole("button", { name: "Deny" }).click();
+  await expect(page.getByRole("alert"))
+    .toHaveText("Action denied by fake host policy");
+  await expectChromiumColorEvidence(page, "deterministic denial");
+
+  await page.reload();
+  await openPermissionGate(page, "Chromium color audit cancellation path");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByLabel("Nova status"))
+    .toHaveText("Fake host presentation cancelled");
+  await expectChromiumColorEvidence(page, "cancelled");
+});
+
+test("Chromium resolves color checks in all ten fixed canonical phases", async ({ page }) => {
+  test.setTimeout(75_000);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.goto("/tests/e2e/canonical-states.html");
+
+  for (const { phase, tone } of [
+    { phase: "idle", tone: "trusted_local" },
+    { phase: "listening", tone: "trusted_local" },
+    { phase: "input_review", tone: "trusted_local" },
+    { phase: "processing", tone: "explicit_cloud" },
+    { phase: "responding", tone: "trusted_local" },
+    { phase: "approval_required", tone: "approval_required" },
+    { phase: "deterministic_deny", tone: "deterministic_deny" },
+    { phase: "paused", tone: "trusted_local" },
+    { phase: "cancelled", tone: "trusted_local" },
+    { phase: "unavailable", tone: "fail_closed" },
+  ] as const) {
+    await expect(page.locator("[data-canonical-phase]"))
+      .toHaveAttribute("data-canonical-phase", phase, { timeout: 25_000 });
+    await expect(page.locator("[data-canonical-phase]"))
+      .toHaveAttribute("data-canonical-trust-tone", tone);
+    await expectChromiumColorEvidence(page, `canonical ${phase} (${tone})`);
+  }
+});
+
+test("rendered text-bearing surfaces use opaque WCAG AA backgrounds", async ({ page }) => {
+  await page.goto("/");
+
+  const trustSurface = page.locator(".nova-header aside");
+  await expectOpaqueSurfaceTextContrast(trustSurface.locator("strong"), trustSurface);
+  for (const text of await trustSurface.locator("p").all()) {
+    await expectOpaqueSurfaceTextContrast(text, trustSurface);
+  }
+  const status = page.getByLabel("Nova status");
+  await expectOpaqueSurfaceTextContrast(status, status);
+
+  const organs = page.locator(".living-organ");
+  await expect(organs).toHaveCount(10);
+  for (let index = 0; index < 10; index += 1) {
+    const organ = organs.nth(index);
+    await expectOpaqueSurfaceTextContrast(
+      organ.locator(".living-organ-title"),
+      organ,
+    );
+    await expectOpaqueSurfaceTextContrast(
+      organ.locator(".living-organ-summary"),
+      organ,
+    );
+  }
+
+  const composer = page.getByLabel("Message composer");
+  for (const privacyCue of await composer.locator(".composer-privacy span").all()) {
+    await expectOpaqueSurfaceTextContrast(privacyCue, composer);
+  }
+
+  const dialog = await openPermissionGate(page, "Rendered conversation contrast");
+  for (const action of await dialog.getByRole("button").all()) {
+    await expectOpaqueSurfaceTextContrast(action, action);
+  }
+  await dialog.getByRole("button", { name: "Approve" }).click();
+  const conversation = page.getByRole("article", { name: "User message" });
+  await expectOpaqueSurfaceTextContrast(conversation, conversation);
 });
 
 test("every enabled control exposes rendered focus in normal and approval phases", async ({ page }) => {

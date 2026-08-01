@@ -105,6 +105,14 @@ function makeState(
   };
 }
 
+function explicitPositiveTabIndexes(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>("[tabindex]"))
+    .filter((element) => {
+      const value = Number(element.getAttribute("tabindex"));
+      return Number.isFinite(value) && value > 0;
+    });
+}
+
 function FakeHostApp({
   onController,
 }: {
@@ -198,9 +206,13 @@ describe("NovaMind accessibility", () => {
   it("keeps deterministic focus order for every interactive element", async () => {
     const user = userEvent.setup();
     const { container } = render(
-      <NovaMindApp
-        state={makeState("responding", { draft: "Ready to send" })}
-      />,
+      <>
+        <NovaMindApp
+          state={makeState("responding", { draft: "Ready to send" })}
+        />
+        <span tabIndex={0}>Explicit zero tabindex fixture</span>
+        <span tabIndex={-1}>Explicit negative tabindex fixture</span>
+      </>,
     );
     const interactiveElements = Array.from(
       container.querySelectorAll<HTMLElement>(
@@ -209,12 +221,25 @@ describe("NovaMind accessibility", () => {
     );
 
     expect(interactiveElements).toHaveLength(13);
-    expect(container.querySelector("[tabindex]:not([tabindex='-1'])"))
-      .not.toBeInTheDocument();
+    expect(explicitPositiveTabIndexes(container)).toEqual([]);
     for (const element of interactiveElements) {
       await user.tab();
       expect(element).toHaveFocus();
     }
+  });
+
+  it("allows zero and negative tabindex but detects positive values", () => {
+    const { container } = render(
+      <>
+        <span tabIndex={0}>Allowed zero</span>
+        <span tabIndex={-1}>Allowed negative one</span>
+        <span tabIndex={1}>Rejected positive one</span>
+      </>,
+    );
+
+    expect(explicitPositiveTabIndexes(container).map(
+      (element) => element.getAttribute("tabindex"),
+    )).toEqual(["1"]);
   });
 
   it("uses polite status for normal transitions", () => {

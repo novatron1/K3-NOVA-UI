@@ -10,8 +10,9 @@ export default defineConfig({
     trace: "off",
   },
   webServer: {
-    command: "npx.cmd vite preview --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173",
-    reuseExistingServer: true,
+    command: "npm.cmd run build -- --mode e2e && npx.cmd vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    url: "http://127.0.0.1:4173/novamind-ready.html",
+    reuseExistingServer: false,
+    timeout: 120_000,
   },
 });
