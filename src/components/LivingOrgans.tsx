@@ -2,6 +2,8 @@ import { Component, type ReactNode } from "react";
 
 import type {
   EvidenceState,
+  HostRunPhase,
+  IsolationLevel,
   LivingOrganId,
   RollbackState,
   SanitizedHostSnapshot,
@@ -43,6 +45,25 @@ const EVIDENCE_LABELS: Readonly<Record<EvidenceState, string>> = Object.freeze({
   blocked: "Blocked",
 });
 
+const PHASE_LABELS: Readonly<Record<HostRunPhase, string>> = Object.freeze({
+  idle: "Idle",
+  listening: "Listening",
+  input_review: "Input review",
+  processing: "Processing",
+  responding: "Responding",
+  approval_required: "Approval required",
+  deterministic_deny: "Deterministic deny",
+  paused: "Paused",
+  cancelled: "Cancelled",
+  unavailable: "Unavailable",
+});
+
+const ISOLATION_LABELS: Readonly<Record<IsolationLevel, string>> = Object.freeze({
+  strong: "Strong",
+  degraded: "Degraded",
+  unavailable: "Unavailable",
+});
+
 const ROLLBACK_LABELS: Readonly<Record<RollbackState, string>> = Object.freeze({
   not_required: "Not required",
   checkpointed: "Checkpointed",
@@ -65,17 +86,18 @@ const ORGAN_DESCRIPTORS: readonly OrganDescriptor[] = Object.freeze([
     select: (snapshot) => ({
       state: snapshot.phase,
       tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
-      label: snapshot.statusLabel,
+      label: `Run phase: ${PHASE_LABELS[snapshot.phase]}`,
       details: [
         { label: "Run ID", value: snapshot.runId },
-        { label: "Run phase", value: snapshot.phase },
-        { label: "Run status", value: snapshot.statusLabel },
+        {
+          label: "Host note (non-authoritative)",
+          value: snapshot.statusLabel,
+        },
       ],
       summaryItems: snapshot.contractSummary,
       motionTokens: [
         snapshot.runId,
         snapshot.phase,
-        snapshot.statusLabel,
         ...snapshot.contractSummary,
       ],
     }),
@@ -116,16 +138,15 @@ const ORGAN_DESCRIPTORS: readonly OrganDescriptor[] = Object.freeze([
     select: (snapshot) => ({
       state: snapshot.evidence,
       tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
-      label: snapshot.evidenceLabel,
+      label: `Evidence state: ${EVIDENCE_LABELS[snapshot.evidence]}`,
       details: [
         {
-          label: "Evidence state",
-          value: EVIDENCE_LABELS[snapshot.evidence],
+          label: "Host note (non-authoritative)",
+          value: snapshot.evidenceLabel,
         },
-        { label: "Sanitized label", value: snapshot.evidenceLabel },
       ],
       summaryItems: [],
-      motionTokens: [snapshot.evidence, snapshot.evidenceLabel],
+      motionTokens: [snapshot.evidence],
     }),
   },
   {
@@ -189,13 +210,15 @@ const ORGAN_DESCRIPTORS: readonly OrganDescriptor[] = Object.freeze([
       tone: snapshot.isolation === "unavailable"
         ? "unavailable"
         : "available",
-      label: snapshot.isolationLabel,
+      label: `Isolation state: ${ISOLATION_LABELS[snapshot.isolation]}`,
       details: [
-        { label: "Isolation state", value: snapshot.isolation },
-        { label: "Sanitized label", value: snapshot.isolationLabel },
+        {
+          label: "Host note (non-authoritative)",
+          value: snapshot.isolationLabel,
+        },
       ],
       summaryItems: [],
-      motionTokens: [snapshot.isolation, snapshot.isolationLabel],
+      motionTokens: [snapshot.isolation],
       locked: snapshot.isolation === "unavailable",
     }),
   },
@@ -220,16 +243,15 @@ const ORGAN_DESCRIPTORS: readonly OrganDescriptor[] = Object.freeze([
     select: (snapshot) => ({
       state: snapshot.rollback,
       tone: snapshot.phase === "unavailable" ? "unavailable" : "available",
-      label: snapshot.rollbackLabel,
+      label: `Rollback state: ${ROLLBACK_LABELS[snapshot.rollback]}`,
       details: [
         {
-          label: "Rollback state",
-          value: ROLLBACK_LABELS[snapshot.rollback],
+          label: "Host note (non-authoritative)",
+          value: snapshot.rollbackLabel,
         },
-        { label: "Sanitized label", value: snapshot.rollbackLabel },
       ],
       summaryItems: [],
-      motionTokens: [snapshot.rollback, snapshot.rollbackLabel],
+      motionTokens: [snapshot.rollback],
     }),
   },
 ] satisfies readonly OrganDescriptor[]);

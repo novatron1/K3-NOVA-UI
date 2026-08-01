@@ -49,6 +49,77 @@ const ORGAN_IDS: readonly LivingOrganId[] = [
 
 const ALL_ORGANS = new Set<LivingOrganId>(ORGAN_IDS);
 
+const ADVERSARIAL_STATE_CASES = [
+  {
+    name: "contract",
+    organId: "contract",
+    initial: {
+      phase: "processing",
+      statusLabel: "Run completed successfully",
+    },
+    changed: {
+      phase: "processing",
+      statusLabel: "Completion verified by label",
+    },
+    primary: "Run phase: Processing",
+    state: "processing",
+    expandedNote: "Host note (non-authoritative): Completion verified by label",
+  },
+  {
+    name: "evidence",
+    organId: "evidence",
+    initial: {
+      evidence: "pending",
+      evidenceLabel: "Evidence verified",
+    },
+    changed: {
+      evidence: "pending",
+      evidenceLabel: "Evidence verification complete",
+    },
+    primary: "Evidence state: Pending",
+    state: "pending",
+    expandedNote: "Host note (non-authoritative): Evidence verification complete",
+  },
+  {
+    name: "isolation",
+    organId: "isolation",
+    initial: {
+      isolation: "degraded",
+      isolationLabel: "Strong isolation verified",
+    },
+    changed: {
+      isolation: "degraded",
+      isolationLabel: "Strong isolation guaranteed",
+    },
+    primary: "Isolation state: Degraded",
+    state: "degraded",
+    expandedNote: "Host note (non-authoritative): Strong isolation guaranteed",
+  },
+  {
+    name: "rollback",
+    organId: "rollback",
+    initial: {
+      rollback: "checkpointed",
+      rollbackLabel: "Rollback verified",
+    },
+    changed: {
+      rollback: "checkpointed",
+      rollbackLabel: "Rollback verification complete",
+    },
+    primary: "Rollback state: Checkpointed",
+    state: "checkpointed",
+    expandedNote: "Host note (non-authoritative): Rollback verification complete",
+  },
+] as const satisfies readonly {
+  readonly name: string;
+  readonly organId: LivingOrganId;
+  readonly initial: Partial<SanitizedHostSnapshot>;
+  readonly changed: Partial<SanitizedHostSnapshot>;
+  readonly primary: string;
+  readonly state: string;
+  readonly expandedNote: string;
+}[];
+
 function renderOrgans(
   snapshot: SanitizedHostSnapshot,
   openOrgans: ReadonlySet<LivingOrganId> = ALL_ORGANS,
@@ -164,11 +235,52 @@ describe("LivingOrgans", () => {
     expect(control).toBeDisabled();
     expect(control).toHaveAttribute("aria-disabled", "true");
     expect(control).toHaveAttribute("aria-expanded", "false");
-    expect(within(isolation).getByText("Strong isolation unavailable"))
+    expect(within(isolation).getByText("Isolation state: Unavailable"))
       .toBeVisible();
+    expect(isolation).not.toHaveTextContent("Strong isolation unavailable");
     fireEvent.click(control);
     expect(onToggle).not.toHaveBeenCalled();
   });
+
+  it.each(ADVERSARIAL_STATE_CASES)(
+    "keeps $name primary state canonical when its host label is deceptive",
+    ({ changed, expandedNote, initial, organId, primary, state }) => {
+      const { container, rerender } = renderOrgans(
+        makeSnapshot(initial),
+        new Set(),
+      );
+      let card = organ(container, organId);
+      let control = within(card).getByRole("button");
+      const pulse = card.querySelector("[data-organ-pulse]");
+
+      expect(card).toHaveAttribute("data-organ-state", state);
+      expect(card).toHaveAttribute("data-organ-tone", "available");
+      expect(card).not.toHaveAttribute("data-locked");
+      expect(within(card).getByText(primary, {
+        selector: ".living-organ-summary",
+      })).toBeVisible();
+      expect(control).toHaveAccessibleName(new RegExp(primary));
+      expect(card).not.toHaveTextContent(expandedNote);
+
+      rerender(
+        <LivingOrgans
+          snapshot={makeSnapshot(changed)}
+          openOrgans={new Set<LivingOrganId>([organId])}
+          onToggle={() => {}}
+        />,
+      );
+      card = organ(container, organId);
+      control = within(card).getByRole("button");
+
+      expect(within(card).getByText(primary, {
+        selector: ".living-organ-summary",
+      })).toBeVisible();
+      expect(control).toHaveAccessibleName(new RegExp(primary));
+      expect(control).not.toHaveAccessibleName(/verified|complete|guaranteed/i);
+      expect(within(card).getByText(expandedNote)).toBeVisible();
+      expect(card.querySelector("[data-organ-pulse]")).toBe(pulse);
+    },
+  );
 
   it("distinguishes pending failed blocked and verified evidence", () => {
     const states = [
@@ -369,6 +481,44 @@ describe("LivingOrgans", () => {
     expect(changedContractPulse).toHaveAttribute("data-motion-revision", "1");
     expect(organ(container, "provider").querySelector("[data-organ-pulse]"))
       .toBe(initialProviderPulse);
+  });
+
+  it("does not restart motion for a new snapshot object with equal selected values", () => {
+    const firstSnapshot = makeSnapshot({
+      contractSummary: ["Stable contract summary"],
+      permissionSummary: ["Stable permission summary"],
+      ledgerSummary: ["Stable ledger summary"],
+      budgetSummary: ["Stable budget summary"],
+      observerSummary: ["Stable observer summary"],
+    });
+    const { container, rerender } = renderOrgans(firstSnapshot, new Set());
+    const pulseNodes = new Map(
+      ORGAN_IDS.map((organId) => [
+        organId,
+        organ(container, organId).querySelector("[data-organ-pulse]"),
+      ]),
+    );
+
+    rerender(
+      <LivingOrgans
+        snapshot={makeSnapshot({
+          contractSummary: ["Stable contract summary"],
+          permissionSummary: ["Stable permission summary"],
+          ledgerSummary: ["Stable ledger summary"],
+          budgetSummary: ["Stable budget summary"],
+          observerSummary: ["Stable observer summary"],
+        })}
+        openOrgans={new Set()}
+        onToggle={() => {}}
+      />,
+    );
+
+    for (const organId of ORGAN_IDS) {
+      const pulse = organ(container, organId)
+        .querySelector("[data-organ-pulse]");
+      expect(pulse).toBe(pulseNodes.get(organId));
+      expect(pulse).toHaveAttribute("data-motion-revision", "0");
+    }
   });
 
   it("sends the exact organ identity when toggled", () => {
