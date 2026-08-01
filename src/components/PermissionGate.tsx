@@ -42,6 +42,7 @@ export function PermissionGate({
 }: PermissionGateProps) {
   const titleId = useId();
   const descriptionId = useId();
+  const warningId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const decisionLocked = useRef(false);
   const [decisionPending, setDecisionPending] = useState(false);
@@ -148,7 +149,9 @@ export function PermissionGate({
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={descriptionId}
+        aria-describedby={gate.irreversible
+          ? `${descriptionId} ${warningId}`
+          : descriptionId}
         tabIndex={-1}
         onKeyDown={onKeyDown}
       >
@@ -184,7 +187,7 @@ export function PermissionGate({
 
         {gate.irreversible
           ? (
-              <p className="permission-gate-warning">
+              <p id={warningId} className="permission-gate-warning">
                 This action is irreversible.
               </p>
             )

@@ -17,7 +17,7 @@ export function TrustHalo({
   privacyClass,
 }: TrustHaloProps) {
   return (
-    <aside aria-label="Trust halo" data-trust-tone={tone}>
+    <aside aria-label={`Trust halo: ${label}`} data-trust-tone={tone}>
       <div>
         <svg
           role="img"
