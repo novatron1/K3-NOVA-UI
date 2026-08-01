@@ -12,6 +12,8 @@
   --nova-focus: #ffffff;
   --nova-motion-ambient: 8s;
   --nova-motion-state: 320ms;
+  --nova-orbital-rail-inset: clamp(0.5rem, 4vw, 4rem);
+  --nova-mobile-organ-sheet-height: min(22rem, 46vh);
 
   --nova-trust-trusted-local: var(--nova-local);
   --nova-trust-explicit-cloud: var(--nova-cloud);
@@ -62,4 +64,10 @@
 [data-phase="processing"],
 [data-phase="responding"] {
   --nova-phase-animation: nova-process-shift;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-phase] {
+    --nova-phase-animation: none;
+  }
 }
