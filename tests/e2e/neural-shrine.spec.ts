@@ -147,8 +147,13 @@ async function expectChromiumColorEvidence(
   await expectNoSiblingHitOverlap(status);
 }
 
-async function expectMinimumTargetSize(locator: Locator): Promise<void> {
-  await locator.scrollIntoViewIfNeeded();
+async function expectMinimumTargetSize(
+  locator: Locator,
+  scrollIntoView = true,
+): Promise<void> {
+  if (scrollIntoView) {
+    await locator.scrollIntoViewIfNeeded();
+  }
   const box = await locator.boundingBox();
   if (box === null) {
     throw new Error("Expected a control bounding box.");
@@ -159,8 +164,9 @@ async function expectMinimumTargetSize(locator: Locator): Promise<void> {
 
 async function expectTargetSizeAndHitTesting(
   locator: Locator,
+  scrollIntoView = true,
 ): Promise<void> {
-  await expectMinimumTargetSize(locator);
+  await expectMinimumTargetSize(locator, scrollIntoView);
   const box = await locator.boundingBox();
   if (box === null) {
     throw new Error("Expected an actionable control bounding box.");
@@ -186,6 +192,35 @@ async function expectTargetSizeAndHitTesting(
   await locator.click({ trial: true });
   await locator.focus();
   await expect(locator).toBeFocused();
+}
+
+async function expectTargetSizeAndCenterHit(
+  locator: Locator,
+): Promise<{ readonly x: number; readonly y: number }> {
+  await expectMinimumTargetSize(locator, false);
+  const box = await locator.boundingBox();
+  if (box === null) {
+    throw new Error("Expected an actionable control bounding box.");
+  }
+  const center = {
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2,
+  };
+  const centerHit = await locator.evaluate((element, point) => {
+    const hit = document.elementFromPoint(point.x, point.y);
+    return {
+      expected: element.getAttribute("aria-label") ?? element.textContent,
+      hit: hit === null
+        ? null
+        : hit.getAttribute("aria-label") ?? hit.textContent,
+      receivesHit: hit === element || (hit !== null && element.contains(hit)),
+    };
+  }, center);
+  expect(
+    centerHit.receivesHit,
+    `center hit for ${centerHit.expected ?? "unnamed control"}; received ${centerHit.hit ?? "nothing"}`,
+  ).toBe(true);
+  return center;
 }
 
 async function boxWithinViewport(locator: Locator, page: Page): Promise<void> {
@@ -474,7 +509,7 @@ test("critical controls remain inside the viewport at 320 CSS pixels", async ({ 
   expect(await page.locator("html").evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(320);
 });
 
-test("every 320px critical control is keyboard and pointer actionable", async ({ page }) => {
+test("every 320px base control preserves sizing hit ownership and keyboard workflows", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 });
   await page.goto("/");
 
@@ -514,34 +549,52 @@ test("every 320px critical control is keyboard and pointer actionable", async ({
     await page.keyboard.press("Enter");
     await expect(organ).toHaveAttribute("aria-expanded", "false");
   }
+});
 
-  const permissionOutcomes = [
-    { choice: "Approve", status: "Fake host approval recorded" },
-    { choice: "Deny", status: "Action denied by fake host policy" },
-    { choice: "Cancel", status: "Fake host presentation cancelled" },
-  ] as const;
-  for (const { choice, status: expectedStatus } of permissionOutcomes) {
-    await page.reload();
+const permissionOutcomes = [
+  { choice: "Approve", status: "Fake host approval recorded", tabCount: 0 },
+  { choice: "Deny", status: "Action denied by fake host policy", tabCount: 1 },
+  { choice: "Cancel", status: "Fake host presentation cancelled", tabCount: 2 },
+] as const;
+
+for (const { choice, status: expectedStatus, tabCount } of permissionOutcomes) {
+  test(`320px ${choice} decision is pointer actionable in a fresh session`, async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 700 });
+    await page.goto("/");
     const gate = await openPermissionGate(page, `320px ${choice} action`);
-    const actions = gate.getByRole("button");
-    await expect(actions).toHaveCount(3);
-    for (const action of await actions.all()) {
-      await expectTargetSizeAndHitTesting(action);
-    }
+    await expect(gate.getByRole("button")).toHaveCount(3);
     const choiceControl = gate.getByRole("button", { name: choice });
-    await choiceControl.focus();
+    const center = await expectTargetSizeAndCenterHit(choiceControl);
+    await page.mouse.click(center.x, center.y);
+    await expect(gate).toBeHidden();
+    await expect(page.getByLabel("Nova status")).toHaveText(expectedStatus);
+  });
+
+  test(`320px ${choice} decision is keyboard actionable in a fresh session`, async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 700 });
+    await page.goto("/");
+    const gate = await openPermissionGate(page, `320px keyboard ${choice} action`);
+    const choiceControl = gate.getByRole("button", { name: choice });
+    await expectTargetSizeAndCenterHit(choiceControl);
+    for (let index = 0; index < tabCount; index += 1) {
+      await page.keyboard.press("Tab");
+    }
     await expect(choiceControl).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(gate).toBeHidden();
     await expect(page.getByLabel("Nova status")).toHaveText(expectedStatus);
-  }
+  });
+}
 
-  await page.reload();
+test("320px cancel control closes a fresh session from the keyboard", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto("/");
   const cancel = page.getByRole("button", { name: "Cancel presentation" });
   await expectTargetSizeAndHitTesting(cancel);
   await cancel.focus();
   await page.keyboard.press("Enter");
-  await message.fill("Submission after cancellation stays inert");
+  await page.getByRole("textbox", { name: "Message" })
+    .fill("Submission after cancellation stays inert");
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.getByRole("alertdialog", {
     name: "Permission decision required",
