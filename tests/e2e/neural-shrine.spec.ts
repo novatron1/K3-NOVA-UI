@@ -21,7 +21,7 @@ function sha256(content: Uint8Array): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-async function expectServedBundleMatchesDist(
+async function expectServedBundleMatchesE2eOutput(
   request: APIRequestContext,
 ): Promise<void> {
   const documentResponse = await request.get("/");
@@ -43,7 +43,7 @@ async function expectServedBundleMatchesDist(
     expect(assetResponse.ok()).toBe(true);
     const [servedAsset, localAsset] = await Promise.all([
       assetResponse.body(),
-      readFile(resolve(process.cwd(), "dist", assetPath.slice(1))),
+      readFile(resolve(process.cwd(), ".playwright-dist", assetPath.slice(1))),
     ]);
     expect(sha256(servedAsset), `served digest for ${assetPath}`)
       .toBe(sha256(localAsset));
@@ -399,11 +399,11 @@ async function openPermissionGate(page: Page, text: string): Promise<Locator> {
   return dialog;
 }
 
-test("served application bundle matches the reviewed local build", async ({
+test("served application bundle matches the isolated E2E build", async ({
   page,
   request,
 }) => {
-  await expectServedBundleMatchesDist(request);
+  await expectServedBundleMatchesE2eOutput(request);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "NovaMind" })).toBeVisible();
 });

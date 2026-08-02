@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => ({
   ...(mode === "e2e"
     ? {
         build: {
+          outDir: ".playwright-dist",
           rollupOptions: {
             input: {
               main: fileURLToPath(new URL("./index.html", import.meta.url)),
