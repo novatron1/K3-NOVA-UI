@@ -42,8 +42,14 @@ describe("public prototype deployment boundary", () => {
 
   it("builds only the static prototype at its repository path", () => {
     const workflow = readFileSync(workflowPath, "utf8");
+    const packageManifest = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts?: Record<string, string>;
+    };
 
-    expect(workflow).toContain("npm run build -- --base /K3-NOVA-UI/");
+    expect(packageManifest.scripts?.["build:pages"]).toBe(
+      "tsc -b && vite build --base /K3-NOVA-UI/",
+    );
+    expect(workflow).toContain("npm run build:pages");
     expect(workflow).toMatch(
       /uses: actions\/upload-pages-artifact@[0-9a-f]{40}[\s\S]*?path:\s*dist/,
     );
@@ -101,7 +107,7 @@ describe("public prototype deployment boundary", () => {
       "npm run compile",
       "npm run lint",
       "npm run test:unit:run",
-      "npm run build -- --base /K3-NOVA-UI/",
+      "npm run build:pages",
       "npm run test:e2e",
       "node scripts/verify-pages-artifact.mjs dist",
       "actions/upload-pages-artifact@",
