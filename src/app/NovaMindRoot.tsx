@@ -14,8 +14,16 @@ export interface NovaMindRootProps {
   readonly environment?: HostEnvironment;
 }
 
-function RemoteNovaMind({ baseUrl }: { readonly baseUrl: string | null }) {
-  const [host] = useState(() => new HttpPresentationHost(baseUrl));
+function RemoteNovaMind({
+  baseUrl,
+  sessionToken,
+}: {
+  readonly baseUrl: string | null;
+  readonly sessionToken: string | null;
+}) {
+  const [host] = useState(
+    () => new HttpPresentationHost(baseUrl, sessionToken),
+  );
   const [voice] = useState(() => new UnavailableVoiceCapture());
   const controller = usePresentationController(host, voice);
 
@@ -29,5 +37,10 @@ export function NovaMindRoot({ environment }: NovaMindRootProps) {
 
   return config.mode === "demo"
     ? <NovaMindDemo />
-    : <RemoteNovaMind baseUrl={config.baseUrl} />;
+    : (
+        <RemoteNovaMind
+          baseUrl={config.baseUrl}
+          sessionToken={config.sessionToken}
+        />
+      );
 }
