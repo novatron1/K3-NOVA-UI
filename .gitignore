@@ -1,5 +1,6 @@
 node_modules/
 dist/
+android/
 .playwright-dist/
 coverage/
 playwright-report/
@@ -12,6 +13,8 @@ test-results/
 *.pem
 *.key
 *.pfx
+*.jks
+*.keystore
 *.sqlite
 *.sqlite3
 *.db
