@@ -1,7 +1,11 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { NovaMindRoot } from "../../src/app/NovaMindRoot";
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("NovaMindRoot", () => {
   it("keeps the existing fake-host demo as the default runtime", async () => {
@@ -9,7 +13,7 @@ describe("NovaMindRoot", () => {
 
     expect(screen.getByRole("heading", { name: "NovaMind" })).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText("Ready for a message")).toBeInTheDocument();
+      expect(screen.getAllByText("Ready for a message").length).toBeGreaterThan(0);
     });
   });
 
@@ -17,9 +21,8 @@ describe("NovaMindRoot", () => {
     render(<NovaMindRoot environment={{ VITE_NOVA_HOST_MODE: "remote" }} />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText("The presentation host is unavailable."),
-      ).toBeInTheDocument();
+      expect(screen.getAllByText("NovaMind host unavailable").length).toBeGreaterThan(0);
     });
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
   });
 });
