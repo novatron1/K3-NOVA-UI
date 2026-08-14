@@ -7,22 +7,30 @@ describe("loadHostConfig", () => {
     expect(loadHostConfig({})).toEqual({ mode: "demo" });
   });
 
-  it("normalizes a valid HTTPS remote backend", () => {
+  it("normalizes a valid HTTPS remote backend and revocable presentation token", () => {
     expect(loadHostConfig({
       VITE_NOVA_HOST_MODE: "remote",
       VITE_NOVA_HOST_BASE_URL: "https://nova.example.test/api/",
+      VITE_NOVA_SESSION_TOKEN: "  tablet-session-token  ",
     })).toEqual({
       mode: "remote",
       baseUrl: "https://nova.example.test/api",
+      sessionToken: "tablet-session-token",
     });
   });
 
-  it("keeps remote mode fail-closed when the backend URL is missing", () => {
+  it("keeps remote mode fail-closed when URL or token is missing", () => {
     expect(loadHostConfig({
       VITE_NOVA_HOST_MODE: "remote",
+    })).toEqual({ mode: "remote", baseUrl: null, sessionToken: null });
+
+    expect(loadHostConfig({
+      VITE_NOVA_HOST_MODE: "remote",
+      VITE_NOVA_HOST_BASE_URL: "https://nova.example.test",
     })).toEqual({
       mode: "remote",
-      baseUrl: null,
+      baseUrl: "https://nova.example.test",
+      sessionToken: null,
     });
   });
 
@@ -30,28 +38,26 @@ describe("loadHostConfig", () => {
     expect(loadHostConfig({
       VITE_NOVA_HOST_MODE: "remote",
       VITE_NOVA_HOST_BASE_URL: "file:///tmp/nova",
-    })).toEqual({
-      mode: "remote",
-      baseUrl: null,
-    });
+      VITE_NOVA_SESSION_TOKEN: "token",
+    })).toEqual({ mode: "remote", baseUrl: null, sessionToken: "token" });
   });
 
   it("rejects insecure HTTP unless it is explicitly enabled", () => {
     expect(loadHostConfig({
       VITE_NOVA_HOST_MODE: "remote",
       VITE_NOVA_HOST_BASE_URL: "http://192.168.1.50:8000/",
-    })).toEqual({
-      mode: "remote",
-      baseUrl: null,
-    });
+      VITE_NOVA_SESSION_TOKEN: "token",
+    })).toEqual({ mode: "remote", baseUrl: null, sessionToken: "token" });
 
     expect(loadHostConfig({
       VITE_NOVA_HOST_MODE: "remote",
       VITE_NOVA_HOST_BASE_URL: "http://192.168.1.50:8000/",
       VITE_NOVA_ALLOW_INSECURE_HOST: "1",
+      VITE_NOVA_SESSION_TOKEN: "token",
     })).toEqual({
       mode: "remote",
       baseUrl: "http://192.168.1.50:8000",
+      sessionToken: "token",
     });
   });
 
@@ -59,6 +65,7 @@ describe("loadHostConfig", () => {
     expect(loadHostConfig({
       VITE_NOVA_HOST_MODE: "something-else",
       VITE_NOVA_HOST_BASE_URL: "https://nova.example.test",
+      VITE_NOVA_SESSION_TOKEN: "token",
     })).toEqual({ mode: "demo" });
   });
 });
