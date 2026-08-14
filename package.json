@@ -12,7 +12,9 @@
     "test:unit": "vitest",
     "test:unit:run": "vitest run",
     "test:e2e": "playwright test",
-    "verify": "npm run compile && npm run lint && npm run test:unit:run && npm run build"
+    "verify": "npm run compile && npm run lint && npm run test:unit:run && npm run build",
+    "android:bootstrap": "node scripts/bootstrap-android.mjs",
+    "android:apk": "npm run build && npm run android:bootstrap && node scripts/build-android-apk.mjs"
   },
   "keywords": [],
   "author": "",

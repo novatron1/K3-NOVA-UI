@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { NovaMindDemo } from "./app/NovaMindDemo";
+import { NovaMindRoot } from "./app/NovaMindRoot";
 import "./theme/global.css";
 
 const rootElement = document.getElementById("root");
@@ -12,6 +12,6 @@ if (rootElement === null) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <NovaMindDemo />
+    <NovaMindRoot />
   </StrictMode>,
 );
