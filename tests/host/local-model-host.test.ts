@@ -68,7 +68,11 @@ describe("local model inventory decoding", () => {
 
   it("rejects host-native identities or private paths even if other fields are valid", () => {
     const candidate = inventory() as Record<string, unknown>;
-    const [model] = candidate.models as Array<Record<string, unknown>>;
+    const models = candidate.models as Array<Record<string, unknown>>;
+    const model = models[0];
+    if (model === undefined) {
+      throw new Error("test fixture did not contain a model");
+    }
     model.nativeId = "dolphin-mixtral:8x7b-v2.7";
     model.privateLocation = "/workspace/models/private.gguf";
 
@@ -77,7 +81,11 @@ describe("local model inventory decoding", () => {
 
   it("rejects invalid stable model ids and oversized inventories", () => {
     const invalid = inventory() as Record<string, unknown>;
-    const [model] = invalid.models as Array<Record<string, unknown>>;
+    const invalidModels = invalid.models as Array<Record<string, unknown>>;
+    const model = invalidModels[0];
+    if (model === undefined) {
+      throw new Error("test fixture did not contain a model");
+    }
     model.modelId = "/workspace/private.gguf";
     expect(() => decodeLocalModelInventory(invalid)).toThrow();
 
