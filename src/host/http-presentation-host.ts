@@ -8,9 +8,9 @@ import {
 import type { HostPresentationEvent } from "../domain/presentation-events";
 import { validateHostEvent } from "../security/validate-host-event";
 import type {
+  LocalModelPresentationSession,
   PresentationHostAdapter,
   PresentationHostHandlers,
-  PresentationSession,
 } from "./presentation-host";
 
 const NDJSON_MEDIA_TYPE = "application/x-ndjson";
@@ -281,7 +281,7 @@ export class HttpPresentationHost implements PresentationHostAdapter {
   async connect(
     handlers: PresentationHostHandlers,
     signal: AbortSignal,
-  ): Promise<PresentationSession> {
+  ): Promise<LocalModelPresentationSession> {
     let fatalSent = false;
     const failFatal = (code: "invalid_event" | "host_unavailable"): void => {
       if (fatalSent || signal.aborted) {
@@ -482,6 +482,6 @@ export class HttpPresentationHost implements PresentationHostAdapter {
       ),
       cancel,
       close,
-    } satisfies PresentationSession);
+    } satisfies LocalModelPresentationSession);
   }
 }
