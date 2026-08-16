@@ -1,4 +1,8 @@
 import type {
+  AnsweringLocalModel,
+  LocalModelInventory,
+} from "./local-models";
+import type {
   DisplayPreferenceKey,
   LivingOrganId,
   SanitizedHostSnapshot,
@@ -43,4 +47,16 @@ export type PresentationAction =
       readonly type: "preference_changed";
       readonly key: DisplayPreferenceKey;
       readonly value: string | number | boolean;
+    }
+  | {
+      readonly type: "local_models_updated";
+      readonly inventory: LocalModelInventory;
+    }
+  | {
+      readonly type: "local_model_scan_state_changed";
+      readonly value: "idle" | "scanning" | "failed";
+    }
+  | {
+      readonly type: "answering_local_model_changed";
+      readonly value: AnsweringLocalModel | null;
     };
