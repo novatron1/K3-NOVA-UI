@@ -18,14 +18,23 @@ export interface PresentationSession {
     approvalRequestId: string,
     decision: "approve" | "deny" | "cancel",
   ) => Promise<void>;
+  readonly getLocalModels?: () => Promise<LocalModelInventory>;
+  readonly scanLocalModels?: () => Promise<LocalModelInventory>;
+  readonly setLocalModelSelection?: (
+    selection: LocalModelSelection,
+  ) => Promise<LocalModelInventory>;
+  readonly getLocalModelStatus?: () => Promise<LocalModelStatus>;
+  readonly cancel: () => Promise<void>;
+  readonly close: () => Promise<void>;
+}
+
+export interface LocalModelPresentationSession extends PresentationSession {
   readonly getLocalModels: () => Promise<LocalModelInventory>;
   readonly scanLocalModels: () => Promise<LocalModelInventory>;
   readonly setLocalModelSelection: (
     selection: LocalModelSelection,
   ) => Promise<LocalModelInventory>;
   readonly getLocalModelStatus: () => Promise<LocalModelStatus>;
-  readonly cancel: () => Promise<void>;
-  readonly close: () => Promise<void>;
 }
 
 export interface PresentationHostAdapter {
