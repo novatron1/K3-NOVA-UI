@@ -1,3 +1,9 @@
+import {
+  decodeLocalModelInventory,
+  type AnsweringLocalModel,
+  type LocalModelSelection,
+  type LocalModelSummary,
+} from "../domain/local-models";
 import type {
   DisplayPreferences,
   LivingOrganId,
@@ -23,6 +29,11 @@ export interface PresentationState {
   readonly displayPreferences: DisplayPreferences;
   readonly sessionState: "connecting" | "connected" | "closed" | "failed";
   readonly sessionError: string | null;
+  readonly localModelControlAvailable: boolean;
+  readonly localModels: readonly LocalModelSummary[];
+  readonly localModelSelection: LocalModelSelection;
+  readonly localModelScanState: "idle" | "scanning" | "failed";
+  readonly answeringModel: AnsweringLocalModel | null;
 }
 
 const DEFAULT_DISPLAY_PREFERENCES: DisplayPreferences = Object.freeze({
@@ -31,6 +42,13 @@ const DEFAULT_DISPLAY_PREFERENCES: DisplayPreferences = Object.freeze({
   layoutDensity: "balanced",
   themeIntensity: 1,
 });
+
+const AUTO_LOCAL_SELECTION: LocalModelSelection = Object.freeze({
+  mode: "auto-local",
+  modelId: null,
+});
+
+const LOCAL_MODEL_ID = /^local_[0-9a-f]{64}$/;
 
 const LIVING_ORGAN_IDS = new Set<LivingOrganId>([
   "contract",
@@ -170,6 +188,30 @@ function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function freezeAnsweringModel(
+  value: AnsweringLocalModel | null,
+): AnsweringLocalModel | null {
+  if (value === null) {
+    return null;
+  }
+  if (
+    typeof value.modelId !== "string"
+    || !LOCAL_MODEL_ID.test(value.modelId)
+    || typeof value.displayName !== "string"
+    || value.displayName.length === 0
+    || (value.engine !== "ollama"
+      && value.engine !== "llama.cpp"
+      && value.engine !== "transformers")
+  ) {
+    throw new Error("invalid answering local model");
+  }
+  return Object.freeze({
+    modelId: value.modelId,
+    displayName: value.displayName,
+    engine: value.engine,
+  });
+}
+
 function withSnapshot(
   state: PresentationState,
   event: Extract<HostPresentationEvent, { readonly type: "snapshot" }>,
@@ -291,6 +333,11 @@ export function createInitialPresentationState(): PresentationState {
     displayPreferences: DEFAULT_DISPLAY_PREFERENCES,
     sessionState: "connecting",
     sessionError: null,
+    localModelControlAvailable: false,
+    localModels: freezeArray([]),
+    localModelSelection: AUTO_LOCAL_SELECTION,
+    localModelScanState: "idle",
+    answeringModel: null,
   });
 }
 
@@ -386,8 +433,36 @@ export function presentationReducer(
             }),
           });
         default:
-          return assertNever(action.key);
+          return assertNever(action);
       }
+    case "local_models_updated": {
+      const inventory = decodeLocalModelInventory(action.inventory);
+      return freezeState({
+        ...state,
+        localModelControlAvailable: true,
+        localModels: inventory.models,
+        localModelSelection: inventory.selection,
+        localModelScanState: "idle",
+        answeringModel: null,
+      });
+    }
+    case "local_model_scan_state_changed":
+      if (
+        action.value !== "idle"
+        && action.value !== "scanning"
+        && action.value !== "failed"
+      ) {
+        return assertNever(action as never);
+      }
+      return freezeState({
+        ...state,
+        localModelScanState: action.value,
+      });
+    case "answering_local_model_changed":
+      return freezeState({
+        ...state,
+        answeringModel: freezeAnsweringModel(action.value),
+      });
     default:
       return assertNever(action);
   }
