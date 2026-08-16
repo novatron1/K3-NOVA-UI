@@ -29,11 +29,11 @@ export interface PresentationState {
   readonly displayPreferences: DisplayPreferences;
   readonly sessionState: "connecting" | "connected" | "closed" | "failed";
   readonly sessionError: string | null;
-  readonly localModelControlAvailable: boolean;
-  readonly localModels: readonly LocalModelSummary[];
-  readonly localModelSelection: LocalModelSelection;
-  readonly localModelScanState: "idle" | "scanning" | "failed";
-  readonly answeringModel: AnsweringLocalModel | null;
+  readonly localModelControlAvailable?: boolean;
+  readonly localModels?: readonly LocalModelSummary[];
+  readonly localModelSelection?: LocalModelSelection;
+  readonly localModelScanState?: "idle" | "scanning" | "failed";
+  readonly answeringModel?: AnsweringLocalModel | null;
 }
 
 const DEFAULT_DISPLAY_PREFERENCES: DisplayPreferences = Object.freeze({
