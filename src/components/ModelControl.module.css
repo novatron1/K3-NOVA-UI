@@ -1,0 +1,85 @@
+.root {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto;
+  gap: 0.55rem 0.7rem;
+  align-items: end;
+  min-width: min(100%, 23rem);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.85rem;
+  background: rgba(8, 14, 22, 0.46);
+  backdrop-filter: blur(12px);
+}
+
+.selector {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.select,
+.scanButton {
+  min-height: 2.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0.65rem;
+  background: rgba(5, 11, 18, 0.8);
+  color: inherit;
+  font: inherit;
+}
+
+.select {
+  width: 100%;
+  padding: 0 0.7rem;
+}
+
+.scanButton {
+  padding: 0 0.9rem;
+  cursor: pointer;
+}
+
+.select:disabled,
+.scanButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.select:focus-visible,
+.scanButton:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.answering,
+.failure {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.answering {
+  opacity: 0.82;
+}
+
+.failure {
+  opacity: 0.72;
+}
+
+@media (max-width: 720px) {
+  .root {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .scanButton {
+    width: 100%;
+  }
+}
