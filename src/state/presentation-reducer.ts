@@ -201,7 +201,8 @@ function freezeAnsweringModel(
     || value.displayName.length === 0
     || (value.engine !== "ollama"
       && value.engine !== "llama.cpp"
-      && value.engine !== "transformers")
+      && value.engine !== "transformers"
+      && value.engine !== "vllm")
   ) {
     throw new Error("invalid answering local model");
   }
@@ -433,7 +434,7 @@ export function presentationReducer(
             }),
           });
         default:
-          return assertNever(action);
+          return assertNever(action.key);
       }
     case "local_models_updated": {
       const inventory = decodeLocalModelInventory(action.inventory);
