@@ -1,5 +1,5 @@
-export type LocalModelEngine = "ollama" | "llama.cpp" | "transformers";
-export type LocalModelSource = "ollama" | "gguf" | "checkpoint";
+export type LocalModelEngine = "ollama" | "llama.cpp" | "transformers" | "vllm";
+export type LocalModelSource = "ollama" | "gguf" | "checkpoint" | "vllm";
 export type LocalModelRuntimeState =
   | "stopped"
   | "starting"
@@ -156,14 +156,24 @@ function nullableLabel(value: unknown): string | null {
 }
 
 function engine(value: unknown): LocalModelEngine {
-  if (value !== "ollama" && value !== "llama.cpp" && value !== "transformers") {
+  if (
+    value !== "ollama"
+    && value !== "llama.cpp"
+    && value !== "transformers"
+    && value !== "vllm"
+  ) {
     throw new Error("invalid local model engine");
   }
   return value;
 }
 
 function source(value: unknown): LocalModelSource {
-  if (value !== "ollama" && value !== "gguf" && value !== "checkpoint") {
+  if (
+    value !== "ollama"
+    && value !== "gguf"
+    && value !== "checkpoint"
+    && value !== "vllm"
+  ) {
     throw new Error("invalid local model source");
   }
   return value;
