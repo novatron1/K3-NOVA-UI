@@ -59,7 +59,7 @@ describe("presentation local-model state", () => {
 
     expect(next.localModelControlAvailable).toBe(true);
     expect(next.localModels).toHaveLength(1);
-    expect(next.localModels[0]?.modelId).toBe(MODEL_ID);
+    expect(next.localModels?.[0]?.modelId).toBe(MODEL_ID);
     expect(next.localModelSelection).toEqual({
       mode: "auto-local",
       modelId: null,
@@ -100,7 +100,7 @@ describe("presentation local-model state", () => {
       }),
     });
 
-    expect(answered.localModelSelection.mode).toBe("auto-local");
+    expect(answered.localModelSelection?.mode).toBe("auto-local");
     expect(answered.answeringModel).toEqual({
       modelId: MODEL_ID,
       displayName: "Dolphin Mixtral 8x7B",
