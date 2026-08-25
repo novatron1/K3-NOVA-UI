@@ -24,6 +24,16 @@ export default defineConfig(({ mode }) => ({
           },
         },
       }
+    : mode === "pages"
+      ? {
+          build: {
+            rollupOptions: {
+              input: {
+                index: fileURLToPath(new URL("./pages.html", import.meta.url)),
+              },
+            },
+          },
+        }
     : {}),
   test: {
     environment: "jsdom",
