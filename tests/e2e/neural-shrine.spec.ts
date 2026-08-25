@@ -461,6 +461,7 @@ test("phone exposes organs in a labeled bottom sheet", async ({ page }) => {
   await page.goto("/");
 
   const organs = page.getByLabel("Technical status organs");
+  await expect(organs).toHaveCSS("position", "fixed");
   const details = await organs.evaluate((element) => {
     const styles = getComputedStyle(element);
     return {
