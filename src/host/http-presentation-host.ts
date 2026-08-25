@@ -1,9 +1,16 @@
+import {
+  decodeLocalModelInventory,
+  decodeLocalModelStatus,
+  type LocalModelInventory,
+  type LocalModelSelection,
+  type LocalModelStatus,
+} from "../domain/local-models";
 import type { HostPresentationEvent } from "../domain/presentation-events";
 import { validateHostEvent } from "../security/validate-host-event";
 import type {
+  LocalModelPresentationSession,
   PresentationHostAdapter,
   PresentationHostHandlers,
-  PresentationSession,
 } from "./presentation-host";
 
 const NDJSON_MEDIA_TYPE = "application/x-ndjson";
@@ -274,7 +281,7 @@ export class HttpPresentationHost implements PresentationHostAdapter {
   async connect(
     handlers: PresentationHostHandlers,
     signal: AbortSignal,
-  ): Promise<PresentationSession> {
+  ): Promise<LocalModelPresentationSession> {
     let fatalSent = false;
     const failFatal = (code: "invalid_event" | "host_unavailable"): void => {
       if (fatalSent || signal.aborted) {
@@ -384,6 +391,30 @@ export class HttpPresentationHost implements PresentationHostAdapter {
       }
     };
 
+    const modelRequest = async (
+      path: string,
+      method: "GET" | "POST",
+      body: Readonly<Record<string, unknown>> | null,
+    ): Promise<Record<string, unknown>> => {
+      if (closed || signal.aborted) {
+        throw new HostUnavailableError();
+      }
+      try {
+        const init: RequestInit = {
+          method,
+          headers: authorizationHeaders(token, "application/json", body !== null),
+          signal,
+        };
+        if (body !== null) {
+          init.body = JSON.stringify(body);
+        }
+        const response = await this.fetchImpl(`${sessionRoot}${path}`, init);
+        return await decodeJson(response);
+      } catch (error: unknown) {
+        throw error instanceof Error ? error : new HostUnavailableError();
+      }
+    };
+
     const cancel = async (): Promise<void> => {
       if (closed) {
         return;
@@ -428,8 +459,29 @@ export class HttpPresentationHost implements PresentationHostAdapter {
             Object.freeze({ decision }),
             true,
           ),
+      getLocalModels: async (): Promise<LocalModelInventory> => (
+        decodeLocalModelInventory(await modelRequest("/models", "GET", null))
+      ),
+      scanLocalModels: async (): Promise<LocalModelInventory> => (
+        decodeLocalModelInventory(await modelRequest("/models/scan", "POST", null))
+      ),
+      setLocalModelSelection: async (
+        selection: LocalModelSelection,
+      ): Promise<LocalModelInventory> => (
+        decodeLocalModelInventory(await modelRequest(
+          "/models/selection",
+          "POST",
+          Object.freeze({
+            mode: selection.mode,
+            modelId: selection.modelId,
+          }),
+        ))
+      ),
+      getLocalModelStatus: async (): Promise<LocalModelStatus> => (
+        decodeLocalModelStatus(await modelRequest("/models/status", "GET", null))
+      ),
       cancel,
       close,
-    } satisfies PresentationSession);
+    } satisfies LocalModelPresentationSession);
   }
 }

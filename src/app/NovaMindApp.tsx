@@ -2,6 +2,7 @@ import { NovaCore } from "../components/NovaCore";
 import { ConversationField } from "../components/ConversationField";
 import { ComposerMembrane } from "../components/ComposerMembrane";
 import { LivingOrgans } from "../components/LivingOrgans";
+import { ModelControl } from "../components/ModelControl";
 import { PermissionGate } from "../components/PermissionGate";
 import { StatusAnnouncer } from "../components/StatusAnnouncer";
 import { TrustHalo } from "../components/TrustHalo";
@@ -39,7 +40,14 @@ const UNAVAILABLE_CONTROLLER: PresentationControllerActions = Object.freeze({
   onOrganToggle: () => {},
   onPermissionDecision: () => Promise.resolve(),
   onCancel: () => Promise.resolve(),
+  onScanLocalModels: () => Promise.resolve(),
+  onLocalModelSelectionChange: () => Promise.resolve(),
 });
+
+const NOOP_SCAN = (): Promise<void> => Promise.resolve();
+const NOOP_SELECTION: NonNullable<
+  PresentationControllerActions["onLocalModelSelectionChange"]
+> = () => Promise.resolve();
 
 export function NovaMindApp({
   state,
@@ -54,6 +62,11 @@ export function NovaMindApp({
   const permissionGate = sessionTerminal
     ? null
     : trustedActivePermissionGate(snapshot);
+  const modelControlsVisible = state.localModelControlAvailable === true;
+  const modelSelection = state.localModelSelection ?? Object.freeze({
+    mode: "auto-local" as const,
+    modelId: null,
+  });
 
   return (
     <main
@@ -78,6 +91,22 @@ export function NovaMindApp({
             privacyClass={snapshot.privacyClass}
           />
         </header>
+
+        {modelControlsVisible
+          ? (
+              <ModelControl
+                models={state.localModels ?? []}
+                selection={modelSelection}
+                scanState={state.localModelScanState ?? "idle"}
+                answeringModel={state.answeringModel ?? null}
+                disabled={sessionTerminal || snapshot.phase === "processing"}
+                onScan={controller.onScanLocalModels ?? NOOP_SCAN}
+                onSelectionChange={
+                  controller.onLocalModelSelectionChange ?? NOOP_SELECTION
+                }
+              />
+            )
+          : null}
 
         <section className="nova-shrine" aria-labelledby="shrine-title">
           <div className="nova-shrine-heading">

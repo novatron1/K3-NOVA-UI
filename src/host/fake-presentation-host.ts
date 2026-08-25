@@ -1,3 +1,8 @@
+import type {
+  LocalModelInventory,
+  LocalModelSelection,
+  LocalModelStatus,
+} from "../domain/local-models";
 import type { HostPresentationEvent } from "../domain/presentation-events";
 import { validateHostEvent } from "../security/validate-host-event";
 import type {
@@ -25,9 +30,69 @@ export interface FakePresentationScript {
   ) => readonly HostPresentationEvent[];
 }
 
+const DEMO_DOLPHIN_ID = `local_${"a".repeat(64)}`;
+const DEMO_NOVA_ID = `local_${"b".repeat(64)}`;
+
+function demoInventory(
+  selection: LocalModelSelection,
+  version: number,
+): LocalModelInventory {
+  return Object.freeze({
+    version,
+    scannedAt: "2026-08-16T18:20:00+00:00",
+    selection,
+    models: Object.freeze([
+      Object.freeze({
+        modelId: DEMO_DOLPHIN_ID,
+        displayName: "Dolphin Mixtral 8x7B",
+        engine: "ollama" as const,
+        source: "ollama" as const,
+        sizeBytes: 31_000_000_000,
+        parameterCount: 47_000_000_000,
+        quantization: "Q4_0",
+        contextLength: 32_768,
+        capabilities: Object.freeze({
+          text: true,
+          vision: false,
+          tools: false,
+          embeddings: false,
+          reasoning: false,
+        }),
+        runtimeState: "ready" as const,
+        failureCode: null,
+      }),
+      Object.freeze({
+        modelId: DEMO_NOVA_ID,
+        displayName: "Nova Trained 1.5B",
+        engine: "ollama" as const,
+        source: "ollama" as const,
+        sizeBytes: 986_000_000,
+        parameterCount: 1_500_000_000,
+        quantization: "Q4_K_M",
+        contextLength: 32_768,
+        capabilities: Object.freeze({
+          text: true,
+          vision: false,
+          tools: true,
+          embeddings: false,
+          reasoning: false,
+        }),
+        runtimeState: "ready" as const,
+        failureCode: null,
+      }),
+    ]),
+  });
+}
+
 class FakePresentationSession implements PresentationSession {
   private readonly pending = new Set<() => void>();
   private closed = false;
+  private localModelSelection: LocalModelSelection = Object.freeze({
+    mode: "auto-local",
+    modelId: null,
+  });
+  private localModelVersion = 1;
+  private answeringModel: LocalModelStatus["answeringModel"] = null;
 
   private readonly onAbort = (): void => {
     this.closeNow();
@@ -61,6 +126,16 @@ class FakePresentationSession implements PresentationSession {
       return Promise.resolve();
     }
 
+    const selectedId = this.localModelSelection.mode === "manual-local"
+      ? this.localModelSelection.modelId
+      : DEMO_DOLPHIN_ID;
+    this.answeringModel = Object.freeze({
+      modelId: selectedId,
+      displayName: selectedId === DEMO_NOVA_ID
+        ? "Nova Trained 1.5B"
+        : "Dolphin Mixtral 8x7B",
+      engine: "ollama",
+    });
     this.enqueue(events);
     return Promise.resolve();
   };
@@ -101,6 +176,41 @@ class FakePresentationSession implements PresentationSession {
     this.enqueue(events);
     return Promise.resolve();
   };
+
+  readonly getLocalModels = (): Promise<LocalModelInventory> => Promise.resolve(
+    demoInventory(this.localModelSelection, this.localModelVersion),
+  );
+
+  readonly scanLocalModels = (): Promise<LocalModelInventory> => {
+    this.localModelVersion += 1;
+    return Promise.resolve(
+      demoInventory(this.localModelSelection, this.localModelVersion),
+    );
+  };
+
+  readonly setLocalModelSelection = (
+    selection: LocalModelSelection,
+  ): Promise<LocalModelInventory> => {
+    if (
+      selection.mode === "manual-local"
+      && selection.modelId !== DEMO_DOLPHIN_ID
+      && selection.modelId !== DEMO_NOVA_ID
+    ) {
+      return Promise.reject(new Error("local model selection unavailable"));
+    }
+    this.localModelSelection = Object.freeze({ ...selection });
+    this.answeringModel = null;
+    return Promise.resolve(
+      demoInventory(this.localModelSelection, this.localModelVersion),
+    );
+  };
+
+  readonly getLocalModelStatus = (): Promise<LocalModelStatus> => Promise.resolve(
+    Object.freeze({
+      selection: this.localModelSelection,
+      answeringModel: this.answeringModel,
+    }),
+  );
 
   readonly cancel = (): Promise<void> => {
     this.closeNow();

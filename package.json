@@ -29,6 +29,9 @@
   },
   "devDependencies": {
     "@playwright/test": "1.62.0",
+    "@capacitor/android": "8.4.2",
+    "@capacitor/cli": "8.4.2",
+    "@capacitor/core": "8.4.2",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",

@@ -6,6 +6,7 @@ import {
   useRef,
 } from "react";
 
+import type { LocalModelSelection } from "../domain/local-models";
 import type { HostPresentationEvent } from "../domain/presentation-events";
 import {
   trustedActivePermissionGate,
@@ -85,6 +86,10 @@ export interface PresentationControllerActions {
     decision: "approve" | "deny" | "cancel",
   ) => Promise<void>;
   readonly onCancel: () => Promise<void>;
+  readonly onScanLocalModels?: () => Promise<void>;
+  readonly onLocalModelSelectionChange?: (
+    selection: LocalModelSelection,
+  ) => Promise<void>;
 }
 
 export type PresentationController =
@@ -184,6 +189,7 @@ export function usePresentationController(
   const voiceSubmissionPending = useRef(false);
   const voiceStopPending = useRef(false);
   const voiceStopGeneration = useRef(0);
+  const localModelStatusPending = useRef(false);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -267,6 +273,31 @@ export function usePresentationController(
           }
 
           dispatch({ type: "host_event", event: validation.event });
+
+          if (
+            validation.event.type === "message"
+            && validation.event.message.author === "nova"
+            && !localModelStatusPending.current
+          ) {
+            const currentSession = runtime.session;
+            const getStatus = currentSession?.getLocalModelStatus;
+            if (currentSession !== null && getStatus !== undefined) {
+              localModelStatusPending.current = true;
+              void getStatus.call(currentSession).then(
+                (status) => {
+                  if (runtime.active && !runtime.terminated) {
+                    dispatch({
+                      type: "answering_local_model_changed",
+                      value: status.answeringModel,
+                    });
+                  }
+                },
+                () => undefined,
+              ).finally(() => {
+                localModelStatusPending.current = false;
+              });
+            }
+          }
         },
         onFatalError: terminate,
       }, abortController.signal);
@@ -289,6 +320,22 @@ export function usePresentationController(
               runtime.cancelRequested ? "cancel" : "close",
             );
             return;
+          }
+
+          const getLocalModels = connectedSession.getLocalModels;
+          if (getLocalModels !== undefined) {
+            void getLocalModels.call(connectedSession).then(
+              (inventory) => {
+                if (runtime.active && !runtime.terminated) {
+                  dispatch({ type: "local_models_updated", inventory });
+                }
+              },
+              () => {
+                if (runtime.active && !runtime.terminated) {
+                  terminate("host_unavailable");
+                }
+              },
+            );
           }
         },
         () => {
@@ -586,6 +633,59 @@ export function usePresentationController(
     });
   }, []);
 
+  const onScanLocalModels = useCallback(async (): Promise<void> => {
+    const runtime = runtimeRef.current;
+    const session = runtime?.session;
+    const scan = session?.scanLocalModels;
+    if (
+      runtime === null
+      || !runtime.active
+      || runtime.terminated
+      || session === null
+      || scan === undefined
+    ) {
+      return;
+    }
+
+    dispatch({ type: "local_model_scan_state_changed", value: "scanning" });
+    try {
+      const inventory = await scan.call(session);
+      if (runtime.active && !runtime.terminated) {
+        dispatch({ type: "local_models_updated", inventory });
+      }
+    } catch {
+      if (runtime.active && !runtime.terminated) {
+        dispatch({ type: "local_model_scan_state_changed", value: "failed" });
+      }
+    }
+  }, []);
+
+  const onLocalModelSelectionChange = useCallback(async (
+    selection: LocalModelSelection,
+  ): Promise<void> => {
+    const runtime = runtimeRef.current;
+    const session = runtime?.session;
+    const setSelection = session?.setLocalModelSelection;
+    if (
+      runtime === null
+      || !runtime.active
+      || runtime.terminated
+      || session === null
+      || setSelection === undefined
+    ) {
+      return;
+    }
+
+    try {
+      const inventory = await setSelection.call(session, selection);
+      if (runtime.active && !runtime.terminated) {
+        dispatch({ type: "local_models_updated", inventory });
+      }
+    } catch {
+      // Keep the previous canonical inventory and selection on failure.
+    }
+  }, []);
+
   const onCancel = useCallback(async (): Promise<void> => {
     const runtime = runtimeRef.current;
     if (runtime === null || !runtime.active || runtime.terminated) {
@@ -619,8 +719,12 @@ export function usePresentationController(
     onOrganToggle,
     onPermissionDecision,
     onCancel,
+    onScanLocalModels,
+    onLocalModelSelectionChange,
   }), [
     onCancel,
+    onScanLocalModels,
+    onLocalModelSelectionChange,
     onDiscardVoiceReview,
     onDraftChange,
     onOrganToggle,

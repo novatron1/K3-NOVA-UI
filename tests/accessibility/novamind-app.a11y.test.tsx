@@ -192,7 +192,7 @@ describe("NovaMind accessibility", () => {
 
     expect(await screen.findByText("Keyboard-only request")).toBeVisible();
     await user.tab();
-    for (let index = 0; index < 11; index += 1) {
+    for (let index = 0; index < 13; index += 1) {
       await user.tab();
     }
     expect(screen.getByRole("button", { name: "Cancel presentation" })).toHaveFocus();
