@@ -47,7 +47,7 @@ describe("public prototype deployment boundary", () => {
     };
 
     expect(packageManifest.scripts?.["build:pages"]).toBe(
-      "tsc -b && vite build --base /K3-NOVA-UI/",
+      "tsc -b && vite build --mode pages --base /K3-NOVA-UI/",
     );
     expect(workflow).toContain("npm run build:pages");
     expect(workflow).toMatch(
