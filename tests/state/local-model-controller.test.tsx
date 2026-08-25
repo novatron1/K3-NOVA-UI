@@ -145,7 +145,8 @@ function harness(): Harness {
 describe("usePresentationController local models", () => {
   it("loads canonical local model inventory when the connected session supports it", async () => {
     const test = harness();
-    const { result } = renderHook(() => usePresentationController(test.host, voice()));
+    const capture = voice();
+    const { result } = renderHook(() => usePresentationController(test.host, capture));
 
     await waitFor(() => expect(result.current.localModelControlAvailable).toBe(true));
 
@@ -158,7 +159,8 @@ describe("usePresentationController local models", () => {
 
   it("rescans and updates only from the backend-returned canonical inventory", async () => {
     const test = harness();
-    const { result } = renderHook(() => usePresentationController(test.host, voice()));
+    const capture = voice();
+    const { result } = renderHook(() => usePresentationController(test.host, capture));
     await waitFor(() => expect(result.current.localModelControlAvailable).toBe(true));
 
     await act(async () => {
@@ -173,7 +175,8 @@ describe("usePresentationController local models", () => {
   it("keeps the previous inventory when a rescan fails", async () => {
     const test = harness();
     test.scan.mockRejectedValueOnce(new Error("scan failed"));
-    const { result } = renderHook(() => usePresentationController(test.host, voice()));
+    const capture = voice();
+    const { result } = renderHook(() => usePresentationController(test.host, capture));
     await waitFor(() => expect(result.current.localModelControlAvailable).toBe(true));
     const before = result.current.localModels;
 
@@ -187,7 +190,8 @@ describe("usePresentationController local models", () => {
 
   it("switches to one exact stable model and accepts only the backend canonical result", async () => {
     const test = harness();
-    const { result } = renderHook(() => usePresentationController(test.host, voice()));
+    const capture = voice();
+    const { result } = renderHook(() => usePresentationController(test.host, capture));
     await waitFor(() => expect(result.current.localModelControlAvailable).toBe(true));
 
     await act(async () => {
@@ -209,7 +213,8 @@ describe("usePresentationController local models", () => {
 
   it("reads the concrete answering model after Nova emits response content", async () => {
     const test = harness();
-    const { result } = renderHook(() => usePresentationController(test.host, voice()));
+    const capture = voice();
+    const { result } = renderHook(() => usePresentationController(test.host, capture));
     await waitFor(() => expect(result.current.localModelControlAvailable).toBe(true));
 
     act(() => {

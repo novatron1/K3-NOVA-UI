@@ -529,10 +529,10 @@ test("every 320px base control preserves sizing hit ownership and keyboard workf
     element.blur();
   });
   const normalControls = page.locator(
-    ".nova-presentation button:not(:disabled), .nova-presentation textarea:not(:disabled)",
+    ".nova-presentation button:not(:disabled), .nova-presentation textarea:not(:disabled), .nova-presentation select:not(:disabled)",
   );
-  await expect(normalControls).toHaveCount(13);
-  for (let index = 0; index < 13; index += 1) {
+  await expect(normalControls).toHaveCount(15);
+  for (let index = 0; index < 15; index += 1) {
     await page.keyboard.press("Tab");
     const control = normalControls.nth(index);
     await expect(control).toBeFocused();
@@ -722,10 +722,10 @@ test("every enabled control exposes rendered focus in normal and approval phases
   });
 
   const normalControls = page.locator(
-    ".nova-presentation button:not(:disabled), .nova-presentation textarea:not(:disabled)",
+    ".nova-presentation button:not(:disabled), .nova-presentation textarea:not(:disabled), .nova-presentation select:not(:disabled)",
   );
-  await expect(normalControls).toHaveCount(13);
-  for (let index = 0; index < 13; index += 1) {
+  await expect(normalControls).toHaveCount(15);
+  for (let index = 0; index < 15; index += 1) {
     await page.keyboard.press("Tab");
     await expectRenderedFocus(normalControls.nth(index));
   }
@@ -758,6 +758,8 @@ test("reduced motion and forced contrast preserve keyboard workflows and textual
   await expect(page.locator('[data-core-layer="outer-membrane"]'))
     .toHaveCSS("animation-name", "none");
   const contract = page.getByRole("button", { name: /^Run contract / });
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
   await expect(contract).toBeFocused();
   await page.keyboard.press("Enter");
