@@ -8,10 +8,16 @@ export interface HostEnvironment {
 export type HostConfig =
   | { readonly mode: "demo" }
   | {
+      readonly mode: "termux";
+      readonly baseUrl: "http://127.0.0.1:8765";
+    }
+  | {
       readonly mode: "remote";
       readonly baseUrl: string | null;
       readonly sessionToken: string | null;
     };
+
+const TERMUX_BASE_URL = "http://127.0.0.1:8765" as const;
 
 function normalizedBaseUrl(
   rawValue: string | undefined,
@@ -57,6 +63,13 @@ function normalizedSessionToken(rawValue: string | undefined): string | null {
 export function loadHostConfig(
   environment: HostEnvironment = import.meta.env as HostEnvironment,
 ): HostConfig {
+  if (environment.VITE_NOVA_HOST_MODE === "termux") {
+    return Object.freeze({
+      mode: "termux",
+      baseUrl: TERMUX_BASE_URL,
+    });
+  }
+
   if (environment.VITE_NOVA_HOST_MODE !== "remote") {
     return Object.freeze({ mode: "demo" });
   }
