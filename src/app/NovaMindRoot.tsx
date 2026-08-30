@@ -9,6 +9,7 @@ import { usePresentationController } from "../state/use-presentation-controller"
 import { UnavailableVoiceCapture } from "../voice/voice-capture";
 import { NovaMindApp } from "./NovaMindApp";
 import { NovaMindDemo } from "./NovaMindDemo";
+import { TermuxNovaMind } from "./TermuxNovaMind";
 
 export interface NovaMindRootProps {
   readonly environment?: HostEnvironment;
@@ -35,12 +36,18 @@ export function NovaMindRoot({ environment }: NovaMindRootProps) {
     ? loadHostConfig()
     : loadHostConfig(environment);
 
-  return config.mode === "demo"
-    ? <NovaMindDemo />
-    : (
-        <RemoteNovaMind
-          baseUrl={config.baseUrl}
-          sessionToken={config.sessionToken}
-        />
-      );
+  if (config.mode === "demo") {
+    return <NovaMindDemo />;
+  }
+
+  if (config.mode === "termux") {
+    return <TermuxNovaMind baseUrl={config.baseUrl} />;
+  }
+
+  return (
+    <RemoteNovaMind
+      baseUrl={config.baseUrl}
+      sessionToken={config.sessionToken}
+    />
+  );
 }
