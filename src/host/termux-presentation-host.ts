@@ -150,7 +150,8 @@ function stableLocalModelId(seed: string): string {
   for (let index = 0; index < seed.length; index += 1) {
     const code = seed.charCodeAt(index);
     for (let slot = 0; slot < words.length; slot += 1) {
-      const mixed = Math.imul(words[slot] ^ code ^ (index + slot), 0x01000193);
+      const current = words[slot] ?? 0;
+      const mixed = Math.imul(current ^ code ^ (index + slot), 0x01000193);
       words[slot] = mixed >>> 0;
     }
   }
@@ -328,12 +329,15 @@ class TermuxPresentationSession implements LocalModelPresentationSession {
     if (this.closed || signal.aborted) {
       throw new HostUnavailableError();
     }
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+    const init: RequestInit = {
       method,
       headers: authorizationHeaders(this.token, body !== null),
-      body: body === null ? undefined : JSON.stringify(body),
       signal,
-    });
+    };
+    if (body !== null) {
+      init.body = JSON.stringify(body);
+    }
+    const response = await this.fetchImpl(`${this.baseUrl}${path}`, init);
     return decodeResponse(response);
   }
 
