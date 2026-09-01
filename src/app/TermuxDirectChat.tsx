@@ -1,10 +1,10 @@
 import {
-  FormEvent,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import type { FormEvent } from "react";
 
 import styles from "./TermuxDirectChat.module.css";
 
