@@ -12,6 +12,11 @@ describe("Android Termux bridge bootstrap", () => {
     expect(script).toContain("com.termux.RUN_COMMAND_ARGUMENTS");
     expect(script).toContain("com.termux.RUN_COMMAND_WORKDIR");
     expect(script).toContain("com.termux.RUN_COMMAND_BACKGROUND");
+    expect(script).toContain("@Permission(");
+    expect(script).toContain("alias = \"runCommand\"");
+    expect(script).toContain("requestPermissionForAlias");
+    expect(script).toContain("@PermissionCallback");
+    expect(script).toContain("PermissionState.GRANTED");
     expect(script).toContain("/data/data/com.termux/files/home/nova/termux/start_nova.sh");
   });
 
