@@ -159,21 +159,31 @@ export function TermuxNovaMind({
     launchTermux: boolean,
   ): Promise<void> => {
     setPhase("checking");
-    setDetail(
-      launchTermux
-        ? "Starting Termux and the Nova backend…"
-        : "Checking the on-device Nova backend…",
-    );
+    setDetail("Checking the on-device Nova backend…");
 
-    if (launchTermux) {
+    const initialStatus = await readStatus(baseUrl, activeToken);
+    if (initialStatus === "denied") {
+      setPhase("denied");
+      setDetail("Nova rejected this token. Paste the current token from Termux.");
+      return;
+    }
+    if (initialStatus?.modelReady === true) {
+      setPhase("ready");
+      setDetail("Nova is ready.");
+      return;
+    }
+
+    let bridgeFailed = false;
+    if (initialStatus === null && launchTermux) {
+      setDetail("Nova is offline. Asking Android to start Termux…");
       try {
         await startNovaInTermux();
       } catch {
-        setPhase("error");
+        bridgeFailed = true;
+        setPhase("offline");
         setDetail(
-          "Android could not start Termux. Grant K3 Nova the Run commands in Termux permission, then try again.",
+          "Nova is not running. Open Termux and run: bash ~/nova/termux/start_nova.sh — then return here and tap Retry startup.",
         );
-        return;
       }
     }
 
@@ -199,7 +209,11 @@ export function TermuxNovaMind({
         }
       } else if (attempt > 2) {
         setPhase("offline");
-        setDetail("Waiting for the Nova backend on 127.0.0.1:8765…");
+        setDetail(
+          bridgeFailed
+            ? "Waiting for Nova. Start it manually in Termux with: bash ~/nova/termux/start_nova.sh"
+            : "Waiting for the Nova backend on 127.0.0.1:8765…",
+        );
       }
       await delay(1000);
     }
@@ -306,7 +320,7 @@ export function TermuxNovaMind({
             disabled={busy}
             onClick={() => void pair()}
           >
-            {busy ? "Starting Nova…" : "Start Nova & Connect"}
+            {busy ? "Connecting…" : "Connect to Nova"}
           </button>
           {token === null
             ? null
@@ -323,8 +337,9 @@ export function TermuxNovaMind({
         </div>
 
         <p className={styles.hint}>
-          Termux must have <code>allow-external-apps=true</code> and K3 Nova
-          must be granted the Android “Run commands in Termux” permission.
+          If Android does not expose the Termux command permission, start Nova
+          manually in Termux with <code>bash ~/nova/termux/start_nova.sh</code>.
+          K3 Nova will connect to the running local backend directly.
         </p>
       </section>
     </main>
