@@ -398,13 +398,27 @@ class TermuxPresentationSession implements LocalModelPresentationSession {
   }
 
   readonly getLocalModels = async (): Promise<LocalModelInventory> => {
-    const [rawModels] = await Promise.all([
-      this.request("/models"),
-      this.refreshStatus(),
-    ]);
-    if (!Array.isArray(rawModels)) {
-      throw new InvalidBackendPayloadError();
+    try {
+      await this.refreshStatus();
+    } catch {
+      // Keep the last authenticated status from connect(). Model inventory is
+      // optional UI metadata and must never take down an otherwise usable chat.
     }
+
+    let rawModels: readonly unknown[] = [];
+    try {
+      const candidate = await this.request("/models");
+      if (Array.isArray(candidate)) {
+        rawModels = candidate;
+      }
+    } catch {
+      // Fall back to the selected model already returned by /status.
+    }
+
+    if (rawModels.length === 0 && this.status.selectedModel !== null) {
+      rawModels = Object.freeze([this.status.selectedModel]);
+    }
+
     const stored = this.registerProfiles(rawModels);
     this.inventoryVersion += 1;
     return Object.freeze({
