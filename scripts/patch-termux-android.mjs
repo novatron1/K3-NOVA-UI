@@ -43,12 +43,23 @@ import android.content.ComponentName;
 import android.content.Intent;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
-@CapacitorPlugin(name = "TermuxBridge")
+@CapacitorPlugin(
+    name = "TermuxBridge",
+    permissions = {
+        @Permission(
+            alias = "runCommand",
+            strings = { "com.termux.permission.RUN_COMMAND" }
+        )
+    }
+)
 public class TermuxBridgePlugin extends Plugin {
     private static final String TERMUX_PACKAGE = "com.termux";
     private static final String RUN_COMMAND_SERVICE = "com.termux.app.RunCommandService";
@@ -60,6 +71,27 @@ public class TermuxBridgePlugin extends Plugin {
 
     @PluginMethod
     public void startNova(PluginCall call) {
+        if (getPermissionState("runCommand") != PermissionState.GRANTED) {
+            requestPermissionForAlias(
+                "runCommand",
+                call,
+                "runCommandPermissionCallback"
+            );
+            return;
+        }
+        launchNova(call);
+    }
+
+    @PermissionCallback
+    private void runCommandPermissionCallback(PluginCall call) {
+        if (getPermissionState("runCommand") != PermissionState.GRANTED) {
+            call.reject("Run commands in Termux permission was not granted.");
+            return;
+        }
+        launchNova(call);
+    }
+
+    private void launchNova(PluginCall call) {
         Intent intent = new Intent();
         intent.setClassName(TERMUX_PACKAGE, RUN_COMMAND_SERVICE);
         intent.setAction(ACTION_RUN_COMMAND);
