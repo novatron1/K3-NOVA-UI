@@ -415,11 +415,19 @@ class TermuxPresentationSession implements LocalModelPresentationSession {
       // Fall back to the selected model already returned by /status.
     }
 
+    let stored: readonly StoredModel[];
     if (rawModels.length === 0 && this.status.selectedModel !== null) {
-      rawModels = Object.freeze([this.status.selectedModel]);
+      const profile = this.status.selectedModel;
+      const modelId = stableLocalModelId(profile.id);
+      this.models.clear();
+      this.models.set(modelId, profile);
+      stored = Object.freeze([
+        Object.freeze({ modelId, profile }),
+      ]);
+    } else {
+      stored = this.registerProfiles(rawModels);
     }
 
-    const stored = this.registerProfiles(rawModels);
     this.inventoryVersion += 1;
     return Object.freeze({
       version: this.inventoryVersion,
