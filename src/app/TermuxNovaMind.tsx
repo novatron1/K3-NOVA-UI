@@ -5,10 +5,7 @@ import {
 } from "react";
 
 import { startNovaInTermux } from "../host/termux-bridge";
-import { TermuxPresentationHost } from "../host/termux-presentation-host";
-import { usePresentationController } from "../state/use-presentation-controller";
-import { UnavailableVoiceCapture } from "../voice/voice-capture";
-import { NovaMindApp } from "./NovaMindApp";
+import { TermuxDirectChat } from "./TermuxDirectChat";
 import styles from "./TermuxNovaMind.module.css";
 
 const TOKEN_STORAGE_KEY = "k3-nova.termux-token.v1";
@@ -120,22 +117,6 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, milliseconds);
   });
-}
-
-function ConnectedNovaMind({
-  baseUrl,
-  token,
-}: {
-  readonly baseUrl: string;
-  readonly token: string;
-}) {
-  const [host] = useState(
-    () => new TermuxPresentationHost(baseUrl, token),
-  );
-  const [voice] = useState(() => new UnavailableVoiceCapture());
-  const controller = usePresentationController(host, voice);
-
-  return <NovaMindApp state={controller} controller={controller} />;
 }
 
 export function TermuxNovaMind({
@@ -278,17 +259,12 @@ export function TermuxNovaMind({
 
   if (phase === "ready" && token !== null) {
     return (
-      <div className={styles.connected}>
-        <div className={styles.localBadge}>
-          <span>On-device Termux</span>
-          <button type="button" onClick={forget}>Change token</button>
-        </div>
-        <ConnectedNovaMind
-          key={token}
-          baseUrl={baseUrl}
-          token={token}
-        />
-      </div>
+      <TermuxDirectChat
+        key={token}
+        baseUrl={baseUrl}
+        token={token}
+        onChangeToken={forget}
+      />
     );
   }
 
