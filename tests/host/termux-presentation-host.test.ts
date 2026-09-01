@@ -179,4 +179,38 @@ describe("TermuxPresentationHost", () => {
     ).toBe(true);
     expect(JSON.stringify(hostHandlers.events)).not.toContain("RECENT CONVERSATION");
   });
+
+  it("keeps chat usable when the optional model inventory endpoint fails", async () => {
+    const fetchImpl: typeof fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/status")) {
+        return jsonResponse({
+          ok: true,
+          bind_host: "127.0.0.1",
+          db_ready: true,
+          model_ready: true,
+          memory_count: 1,
+          selected_model: PROFILE,
+          llama: { ok: true, data: { status: "ok" } },
+        });
+      }
+      if (url.endsWith("/models")) {
+        return jsonResponse({ detail: "temporary model inventory failure" }, 500);
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+
+    const hostHandlers = handlers();
+    const host = new TermuxPresentationHost(BASE_URL, TOKEN, fetchImpl);
+    const session = await host.connect(hostHandlers, new AbortController().signal);
+    const inventory = await session.getLocalModels();
+
+    expect(hostHandlers.fatalErrors).toEqual([]);
+    expect(inventory.models).toHaveLength(1);
+    expect(inventory.models[0]).toMatchObject({
+      displayName: "Nova Qwen 1.5B Q4",
+      runtimeState: "ready",
+    });
+  });
+
 });
