@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -92,10 +91,7 @@ export function TermuxDirectChat({
   token,
   onChangeToken,
 }: DirectChatProps) {
-  const conversationId = useMemo(
-    () => `k3-direct-${Date.now().toString(36)}`,
-    [],
-  );
+  const conversationId = "k3-direct-main";
   const [status, setStatus] = useState<StatusView | null>(null);
   const [statusText, setStatusText] = useState("Checking Nova…");
   const [messages, setMessages] = useState<readonly ChatMessage[]>([]);
