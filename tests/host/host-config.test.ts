@@ -68,4 +68,16 @@ describe("loadHostConfig", () => {
       VITE_NOVA_SESSION_TOKEN: "token",
     })).toEqual({ mode: "demo" });
   });
+
+  it("pins Termux mode to the on-device loopback backend", () => {
+    expect(loadHostConfig({
+      VITE_NOVA_HOST_MODE: "termux",
+      VITE_NOVA_HOST_BASE_URL: "https://should-not-be-used.example.test",
+      VITE_NOVA_SESSION_TOKEN: "should-not-be-baked",
+    })).toEqual({
+      mode: "termux",
+      baseUrl: "http://127.0.0.1:8765",
+    });
+  });
+
 });

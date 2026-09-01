@@ -13,10 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      VITE_NOVA_HOST_MODE: remote
-      VITE_NOVA_HOST_BASE_URL: ${{ vars.NOVA_HOST_BASE_URL }}
-      VITE_NOVA_ALLOW_INSECURE_HOST: ${{ vars.NOVA_ALLOW_INSECURE_HOST }}
-      VITE_NOVA_SESSION_TOKEN: ""
+      VITE_NOVA_HOST_MODE: termux
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,31 +26,16 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - name: Configure trusted manual connection
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        env:
-          NOVA_SESSION_TOKEN: ${{ secrets.NOVA_SESSION_TOKEN }}
-        run: |
-          if [ -z "$VITE_NOVA_HOST_BASE_URL" ]; then
-            echo "NOVA_HOST_BASE_URL repository variable is required for a connected APK." >&2
-            exit 1
-          fi
-          if [ -z "$NOVA_SESSION_TOKEN" ]; then
-            echo "NOVA_SESSION_TOKEN repository secret is required for a connected APK." >&2
-            exit 1
-          fi
-          echo "VITE_NOVA_SESSION_TOKEN=$NOVA_SESSION_TOKEN" >> "$GITHUB_ENV"
       - name: Install locked web dependencies
         run: npm ci
       - name: Verify web client
         run: npm run verify
       - name: Build Android debug APK
         run: npm run android:apk
-      - name: Upload K3 Nova APK
+      - name: Upload K3 Nova Termux APK
         uses: actions/upload-artifact@v4
         with:
-          name: k3-nova-debug-apk
+          name: k3-nova-termux-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
