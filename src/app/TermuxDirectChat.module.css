@@ -1,0 +1,210 @@
+.root {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  gap: 14px;
+  padding: 18px;
+  box-sizing: border-box;
+  color: #eefbff;
+  background:
+    radial-gradient(circle at 50% -10%, rgba(77, 229, 255, 0.16), transparent 40%),
+    linear-gradient(180deg, #06131b 0%, #02080d 100%);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: clamp(2rem, 8vw, 3.5rem);
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: #73e9ff;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.status {
+  margin: 6px 0 0;
+  color: rgba(238, 251, 255, 0.68);
+}
+
+.changeToken {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(126, 239, 255, 0.22);
+  border-radius: 999px;
+  color: #dffaff;
+  background: rgba(255, 255, 255, 0.05);
+  font: inherit;
+  font-weight: 800;
+}
+
+.info {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.info div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(126, 239, 255, 0.14);
+  border-radius: 16px;
+  background: rgba(6, 20, 28, 0.78);
+}
+
+.info span {
+  color: rgba(238, 251, 255, 0.48);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.info strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.messages {
+  min-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.empty {
+  margin: auto;
+  display: grid;
+  gap: 6px;
+  text-align: center;
+  color: rgba(238, 251, 255, 0.6);
+}
+
+.userMessage,
+.novaMessage {
+  max-width: min(86%, 760px);
+  padding: 12px 14px;
+  border-radius: 18px;
+}
+
+.userMessage {
+  align-self: flex-end;
+  background: linear-gradient(135deg, rgba(76, 224, 255, 0.22), rgba(108, 255, 197, 0.18));
+  border: 1px solid rgba(126, 239, 255, 0.24);
+}
+
+.novaMessage {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.userMessage span,
+.novaMessage span {
+  display: block;
+  margin-bottom: 5px;
+  color: rgba(238, 251, 255, 0.52);
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.userMessage p,
+.novaMessage p {
+  margin: 0;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.error {
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 96, 96, 0.35);
+  border-radius: 14px;
+  color: #ffd3d3;
+  background: rgba(128, 20, 20, 0.18);
+}
+
+.composer {
+  display: grid;
+  gap: 10px;
+}
+
+.composer textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 86px;
+  padding: 14px 15px;
+  border: 1px solid rgba(126, 239, 255, 0.2);
+  border-radius: 18px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.28);
+  font: inherit;
+  line-height: 1.45;
+}
+
+.composer textarea:focus-visible {
+  outline: 2px solid #73e9ff;
+  outline-offset: 2px;
+}
+
+.composerActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.send,
+.stop {
+  min-height: 48px;
+  min-width: 120px;
+  padding: 0 18px;
+  border-radius: 14px;
+  font: inherit;
+  font-weight: 900;
+}
+
+.send {
+  border: 0;
+  color: #021016;
+  background: linear-gradient(135deg, #71e9ff, #9cffd0);
+}
+
+.send:disabled {
+  opacity: 0.45;
+}
+
+.stop {
+  border: 1px solid rgba(255, 110, 110, 0.35);
+  color: #ffd8d8;
+  background: rgba(130, 20, 20, 0.18);
+}
+
+@media (max-width: 540px) {
+  .root {
+    padding: 14px;
+  }
+
+  .info {
+    grid-template-columns: 1fr;
+  }
+
+  .changeToken {
+    min-width: max-content;
+  }
+}
